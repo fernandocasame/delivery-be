@@ -1,0 +1,13 @@
+Django>=5.0,<5.1
+djangorestframework>=3.14.0
+django-cors-headers>=4.3.0
+djangorestframework-simplejwt>=5.3.1
+drf-spectacular>=0.27.1
+channels[daphne]>=4.0.0
+channels-redis>=4.2.0
+psycopg2-binary>=2.9.9
+celery>=5.3.6
+redis>=5.0.1
+Pillow>=10.2.0
+requests>=2.31.0
+python-dotenv>=1.0.1
