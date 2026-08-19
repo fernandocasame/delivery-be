@@ -97,11 +97,18 @@ class PusherRealtimeService:
     @classmethod
     def trigger_order_picked_up(cls, order):
         """Notifies the client that the package was picked up."""
+        photo_url = None
+        try:
+            if order.package_photo_1 and order.package_photo_1.name:
+                photo_url = order.package_photo_1.url
+        except ValueError:
+            pass
+
         data = {
             'order_id': order.id,
             'formatted_id': f"H{order.id}",
             'status': 'IN_TRANSIT',
-            'package_photo_1': order.package_photo_1.url if order.package_photo_1 else None,
+            'package_photo_1': photo_url,
             'title': '📦 ¡Pedido Recogido!',
             'message': 'El motorizado retiró tu paquete y va en camino directo al destino.',
         }
@@ -115,11 +122,18 @@ class PusherRealtimeService:
     @classmethod
     def trigger_order_delivered(cls, order):
         """Notifies the client that the package was successfully delivered."""
+        pod_url = None
+        try:
+            if order.pod_package_photo and order.pod_package_photo.name:
+                pod_url = order.pod_package_photo.url
+        except ValueError:
+            pass
+
         data = {
             'order_id': order.id,
             'formatted_id': f"H{order.id}",
             'status': 'DELIVERED',
-            'pod_package_photo': order.pod_package_photo.url if order.pod_package_photo else None,
+            'pod_package_photo': pod_url,
             'title': '✅ ¡Pedido Entregado con Éxito!',
             'message': 'Tu paquete ha sido entregado correctamente.',
         }
@@ -129,3 +143,4 @@ class PusherRealtimeService:
             channels.append(f"client-{order.client_id}")
 
         cls.trigger_event(channels, 'order-delivered', data)
+
