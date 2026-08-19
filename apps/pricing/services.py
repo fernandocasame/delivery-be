@@ -12,10 +12,11 @@ class PricingEngine:
             price_min = tariff.price_per_minute
             min_price = tariff.min_price
         except VehicleTariff.DoesNotExist:
-            base_price = Decimal('5000.00')
-            price_km = Decimal('1200.00')
-            price_min = Decimal('200.00')
-            min_price = Decimal('6000.00')
+            base_price = Decimal('2.00')
+            price_km = Decimal('0.40')
+            price_min = Decimal('0.05')
+            min_price = Decimal('2.50')
+
 
         dist_cost = Decimal(str(round(distance_km, 2))) * price_km
         time_cost = Decimal(str(round(duration_minutes, 2))) * price_min
