@@ -6,6 +6,8 @@ from .models import Order, OrderStatus
 from .serializers import OrderSerializer, OrderCreateSerializer, PODUploadSerializer
 from apps.pricing.services import PricingEngine
 from apps.logistics.matching_engine import SmartMatchingEngine
+from apps.notifications.pusher_service import PusherRealtimeService
+
 
 class OrderListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -44,6 +46,10 @@ class OrderListCreateView(generics.ListCreateAPIView):
 
         # Trigger smart driver matching asynchronously
         SmartMatchingEngine.dispatch_order_offer(order)
+
+        # Trigger Pusher Realtime Event to Radar of all drivers
+        PusherRealtimeService.trigger_new_order_available(order)
+
 
 
 class OrderDetailView(generics.RetrieveAPIView):
@@ -111,7 +117,11 @@ class CompleteDeliveryPODView(APIView):
             profile.completed_orders_count += 1
             profile.save()
 
+        # Trigger Pusher Realtime Event for Delivered
+        PusherRealtimeService.trigger_order_delivered(order)
+
         return Response(OrderSerializer(order).data)
+
 
 
 
@@ -145,7 +155,12 @@ class OrderPickupView(APIView):
 
         order.status = OrderStatus.PICKED_UP
         order.save()
+
+        # Trigger Pusher Realtime Event for Picked Up
+        PusherRealtimeService.trigger_order_picked_up(order)
+
         return Response(OrderSerializer(order).data)
+
 
 
 
@@ -164,6 +179,11 @@ class OrderAcceptView(APIView):
         order.driver = request.user
         order.status = OrderStatus.ACCEPTED
         order.save()
+
+        # Trigger Pusher Realtime Event for Accepted
+        PusherRealtimeService.trigger_order_accepted(order)
+
         return Response(OrderSerializer(order).data)
+
 
 
