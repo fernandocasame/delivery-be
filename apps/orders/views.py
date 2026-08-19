@@ -73,9 +73,13 @@ class CompleteDeliveryPODView(APIView):
 
     def post(self, request, pk):
         try:
-            order = Order.objects.get(pk=pk, driver=request.user)
-        except Order.DoesNotExist:
-            return Response({'error': 'Pedido asignado no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+            order = Order.objects.filter(pk=pk).first()
+            if not order:
+                return Response({'error': 'Pedido asignado no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+            if not order.driver:
+                order.driver = request.user
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = PODUploadSerializer(order, data=request.data, partial=True)
         if serializer.is_valid():
@@ -95,7 +99,7 @@ class CompleteDeliveryPODView(APIView):
                 profile.completed_orders_count += 1
                 profile.save()
 
-            order.status = OrderStatus.FINISHED
+            order.status = OrderStatus.DELIVERED
             order.is_paid = True
             order.save()
 
@@ -108,9 +112,13 @@ class OrderPickupView(APIView):
 
     def post(self, request, pk):
         try:
-            order = Order.objects.get(pk=pk, driver=request.user)
-        except Order.DoesNotExist:
-            return Response({'error': 'Pedido asignado no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+            order = Order.objects.filter(pk=pk).first()
+            if not order:
+                return Response({'error': 'Pedido asignado no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+            if not order.driver:
+                order.driver = request.user
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         if 'package_photo_1' in request.FILES:
             order.package_photo_1 = request.FILES['package_photo_1']
@@ -130,6 +138,7 @@ class OrderPickupView(APIView):
         order.status = OrderStatus.PICKED_UP
         order.save()
         return Response(OrderSerializer(order).data)
+
 
 
 class OrderAcceptView(APIView):
