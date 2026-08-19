@@ -103,6 +103,35 @@ class CompleteDeliveryPODView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+class OrderPickupView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            order = Order.objects.get(pk=pk, driver=request.user)
+        except Order.DoesNotExist:
+            return Response({'error': 'Pedido asignado no encontrado'}, status=status.HTTP_404_NOT_FOUND)
+
+        if 'package_photo_1' in request.FILES:
+            order.package_photo_1 = request.FILES['package_photo_1']
+        if 'package_photo_2' in request.FILES:
+            order.package_photo_2 = request.FILES['package_photo_2']
+        if 'origin_latitude' in request.data:
+            try:
+                order.origin_latitude = float(request.data['origin_latitude'])
+            except (ValueError, TypeError):
+                pass
+        if 'origin_longitude' in request.data:
+            try:
+                order.origin_longitude = float(request.data['origin_longitude'])
+            except (ValueError, TypeError):
+                pass
+
+        order.status = OrderStatus.PICKED_UP
+        order.save()
+        return Response(OrderSerializer(order).data)
+
+
 class OrderAcceptView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -119,4 +148,5 @@ class OrderAcceptView(APIView):
         order.status = OrderStatus.ACCEPTED
         order.save()
         return Response(OrderSerializer(order).data)
+
 
