@@ -8,11 +8,23 @@ class DriverProfileSerializer(serializers.ModelSerializer):
     user_email = serializers.ReadOnlyField(source='user.email')
     user_name = serializers.ReadOnlyField(source='user.get_full_name')
     phone_number = serializers.ReadOnlyField(source='user.phone_number')
+    latitude = serializers.SerializerMethodField()
+    longitude = serializers.SerializerMethodField()
 
     class Meta:
         model = DriverProfile
         fields = '__all__'
         read_only_fields = ('approval_status', 'rejection_reason', 'rating_avg', 'total_ratings', 'acceptance_rate', 'completed_orders_count')
+
+    def get_latitude(self, obj):
+        if hasattr(obj.user, 'location') and obj.user.location:
+            return obj.user.location.latitude
+        return None
+
+    def get_longitude(self, obj):
+        if hasattr(obj.user, 'location') and obj.user.location:
+            return obj.user.location.longitude
+        return None
 
 
 class UserSerializer(serializers.ModelSerializer):
