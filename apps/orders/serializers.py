@@ -16,6 +16,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = (
+            'id', 'status', 'total_cost', 'driver_earnings',
             'origin_address', 'origin_latitude', 'origin_longitude', 'origin_notes',
             'destination_address', 'destination_latitude', 'destination_longitude',
             'recipient_name', 'recipient_phone', 'destination_notes',
