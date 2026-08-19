@@ -1,14 +1,23 @@
 import os
 from pathlib import Path
 from datetime import timedelta
+import dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env if present
+dotenv.load_dotenv(BASE_DIR / '.env')
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production-12345')
 
 DEBUG = int(os.environ.get('DEBUG', 1)) == 1
 
-ALLOWED_HOSTS = ['*']
+# Parse ALLOWED_HOSTS from env (comma-separated), default to '*'
+raw_hosts = os.environ.get('ALLOWED_HOSTS', '*')
+if raw_hosts == '*':
+    ALLOWED_HOSTS = ['*']
+else:
+    ALLOWED_HOSTS = [host.strip() for host in raw_hosts.split(',') if host.strip()]
 
 USE_POSTGIS = os.environ.get('USE_POSTGIS', '0') == '1'
 
@@ -86,8 +95,22 @@ TEMPLATES = [
 WSGI_APPLICATION = 'core.wsgi.application'
 ASGI_APPLICATION = 'core.asgi.application'
 
-# Database Configuration (SQLite by default for local testing, PostGIS optional)
-if USE_POSTGIS:
+# Database Configuration (MySQL, PostGIS or SQLite by default)
+if os.environ.get('MYSQL_DATABASE') or os.environ.get('MYSQL_HOST'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.mysql',
+            'NAME': os.environ.get('MYSQL_DATABASE', 'delivery'),
+            'USER': os.environ.get('MYSQL_USER', 'fcasame'),
+            'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'Cdarfgvn3004!'),
+            'HOST': os.environ.get('MYSQL_HOST', '192.168.20.80'),
+            'PORT': os.environ.get('MYSQL_PORT', '3306'),
+            'OPTIONS': {
+                'charset': 'utf8mb4',
+            }
+        }
+    }
+elif USE_POSTGIS:
     DATABASES = {
         'default': {
             'ENGINE': os.environ.get('DB_ENGINE', 'django.contrib.gis.db.backends.postgis'),

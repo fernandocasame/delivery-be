@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
     musl-dev \
-    postgresql-client \
+    default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
