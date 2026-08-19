@@ -81,30 +81,38 @@ class CompleteDeliveryPODView(APIView):
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        serializer = PODUploadSerializer(order, data=request.data, partial=True)
-        if serializer.is_valid():
-            otp_input = request.data.get('otp_input')
-            if order.requires_signature or otp_input:
-                if otp_input != order.otp_code:
-                    return Response({'error': 'Código OTP de entrega incorrecto'}, status=status.HTTP_400_BAD_REQUEST)
+        # Handle file uploads directly if provided
+        if 'pod_package_photo' in request.FILES:
+            order.pod_package_photo = request.FILES['pod_package_photo']
+        if 'pod_location_photo' in request.FILES:
+            order.pod_location_photo = request.FILES['pod_location_photo']
+        if 'pod_recipient_name' in request.data:
+            order.pod_recipient_name = request.data['pod_recipient_name']
+        if 'pod_latitude' in request.data:
+            try:
+                order.pod_latitude = float(request.data['pod_latitude'])
+            except (ValueError, TypeError):
+                pass
+        if 'pod_longitude' in request.data:
+            try:
+                order.pod_longitude = float(request.data['pod_longitude'])
+            except (ValueError, TypeError):
+                pass
 
-            order.pod_timestamp = timezone.now()
-            order.status = OrderStatus.DELIVERED
-            serializer.save()
+        order.pod_timestamp = timezone.now()
+        order.status = OrderStatus.DELIVERED
+        order.is_paid = True
+        order.save()
 
-            # Transition driver back to AVAILABLE
-            if hasattr(request.user, 'driver_profile'):
-                profile = request.user.driver_profile
-                profile.status = 'AVAILABLE'
-                profile.completed_orders_count += 1
-                profile.save()
+        # Transition driver back to AVAILABLE
+        if hasattr(request.user, 'driver_profile'):
+            profile = request.user.driver_profile
+            profile.status = 'AVAILABLE'
+            profile.completed_orders_count += 1
+            profile.save()
 
-            order.status = OrderStatus.DELIVERED
-            order.is_paid = True
-            order.save()
+        return Response(OrderSerializer(order).data)
 
-            return Response(OrderSerializer(order).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class OrderPickupView(APIView):
