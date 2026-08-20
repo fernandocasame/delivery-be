@@ -98,15 +98,30 @@ class SmartMatchingEngine:
     def dispatch_order_offer(order: Order):
         # Prevent parallel processes by using transaction atomic
         with transaction.atomic():
-            # Clear any stale offers for this order
-            OrderOffer.objects.filter(order=order).delete()
-
-            drivers = SmartMatchingEngine.get_nearby_eligible_drivers(order)
-            if not drivers:
-                # No candidates in range, leave status as SEARCHING
+            try:
+                order_db = Order.objects.select_for_update().get(id=order.id)
+            except Order.DoesNotExist:
                 return
 
-            # Deduplicate drivers by driver ID to prevent duplicate entry DB exceptions
+            # Strict guard: NEVER dispatch offers if order is not SEARCHING or is already assigned
+            if order_db.status != OrderStatus.SEARCHING or order_db.driver is not None:
+                return
+
+            # Check if there is already an active PENDING offer for this order that hasn't expired
+            active_pending = OrderOffer.objects.filter(
+                order=order_db,
+                status=OrderOffer.OfferStatus.PENDING,
+                expires_at__gt=timezone.now()
+            ).first()
+
+            if active_pending:
+                return
+
+            drivers = SmartMatchingEngine.get_nearby_eligible_drivers(order_db)
+            if not drivers:
+                return
+
+            # Deduplicate by driver ID
             seen_drivers = set()
             unique_drivers = []
             for item in drivers:
@@ -115,46 +130,44 @@ class SmartMatchingEngine:
                     unique_drivers.append(item)
             drivers = unique_drivers
 
+            # Clear stale offers for this order and build fresh candidate sequence
+            OrderOffer.objects.filter(order=order_db).delete()
+
             timeout_seconds = int(SystemParameter.get_param('order_offer_timeout_seconds', '15'))
-            
-            # Pre-generate offers for all candidates in sorted sequence
             offers_to_create = []
             now = timezone.now()
-            
+
             for idx, item in enumerate(drivers):
-                # The first driver gets expires_at, other drivers have a placeholder expires_at (will be updated when activated)
                 expires = now + timedelta(seconds=timeout_seconds) if idx == 0 else now
                 offers_to_create.append(
                     OrderOffer(
-                        order=order,
+                        order=order_db,
                         driver=item['driver'],
-                        status=OrderOffer.OfferStatus.PENDING if idx == 0 else OrderOffer.OfferStatus.EXPIRED, # initial state
+                        status=OrderOffer.OfferStatus.PENDING if idx == 0 else OrderOffer.OfferStatus.EXPIRED,
                         distance_km=item['distance_km'],
                         sequence=idx,
                         expires_at=expires
                     )
                 )
 
-            created_offers = OrderOffer.objects.bulk_create(offers_to_create)
+            OrderOffer.objects.bulk_create(offers_to_create)
 
-            # Activate the first offer (sequence 0)
-            first_offer = created_offers[0]
-            first_offer.status = OrderOffer.OfferStatus.PENDING
-            first_offer.save()
+            # Fetch sequence 0 offer from DB to obtain real primary key ID for Celery task
+            first_offer = OrderOffer.objects.filter(order=order_db, sequence=0).first()
 
-            # Notify the first driver via targeted Pusher channel
-            PusherRealtimeService.trigger_new_order_available_to_driver(
-                order=order,
-                driver_id=first_offer.driver_id,
-                expires_at=first_offer.expires_at
-            )
+            if first_offer:
+                # Notify the first candidate driver via Pusher
+                PusherRealtimeService.trigger_new_order_available_to_driver(
+                    order=order_db,
+                    driver_id=first_offer.driver_id,
+                    expires_at=first_offer.expires_at
+                )
 
-            # Import task locally to prevent circular import issues
-            try:
-                from apps.logistics.tasks import expire_order_offer
-                expire_order_offer.apply_async(args=[first_offer.id], countdown=timeout_seconds)
-            except Exception as e:
-                print('[Celery schedule warning] Failed to schedule task, relying on synchronous fallback:', e)
+                try:
+                    from apps.logistics.tasks import expire_order_offer
+                    expire_order_offer.apply_async(args=[first_offer.id], countdown=timeout_seconds)
+                except Exception as e:
+                    print('[Celery schedule warning] Failed to schedule task:', e)
 
     @staticmethod
     def accept_order(order_id: int, driver_user: User) -> dict:
@@ -202,7 +215,67 @@ class SmartMatchingEngine:
             # Trigger realtime updates to Client
             PusherRealtimeService.trigger_order_accepted(order)
 
+            # Immediately send retraction signal to all other drivers' screens
+            other_drivers = User.objects.filter(offers__order=order).exclude(id=driver_user.id).distinct()
+            for d in other_drivers:
+                PusherRealtimeService.trigger_order_retracted_from_driver(order, d.id)
+
             return {'success': True, 'message': 'Pedido asignado con éxito', 'order_id': order.id}
+
+    @staticmethod
+    def reject_order(order_id: int, driver_user: User) -> dict:
+        with transaction.atomic():
+            try:
+                order = Order.objects.select_for_update().get(id=order_id)
+            except Order.DoesNotExist:
+                return {'success': False, 'message': 'El pedido no existe.'}
+
+            offer = OrderOffer.objects.filter(
+                order=order,
+                driver=driver_user,
+                status=OrderOffer.OfferStatus.PENDING
+            ).first()
+
+            if not offer:
+                return {'success': False, 'message': 'No tienes una oferta pendiente para este pedido.'}
+
+            # Mark current offer as REJECTED
+            offer.status = OrderOffer.OfferStatus.REJECTED
+            offer.save()
+
+            # Retract notification from current driver
+            PusherRealtimeService.trigger_order_retracted_from_driver(order, driver_user.id)
+
+            # Activate next offer if present
+            next_offer = OrderOffer.objects.filter(
+                order=order,
+                sequence=offer.sequence + 1
+            ).first()
+
+            if next_offer:
+                timeout_seconds = int(SystemParameter.get_param('order_offer_timeout_seconds', '15'))
+                next_offer.status = OrderOffer.OfferStatus.PENDING
+                next_offer.expires_at = timezone.now() + timedelta(seconds=timeout_seconds)
+                next_offer.save()
+
+                PusherRealtimeService.trigger_new_order_available_to_driver(
+                    order=order,
+                    driver_id=next_offer.driver_id,
+                    expires_at=next_offer.expires_at
+                )
+
+                try:
+                    from apps.logistics.tasks import expire_order_offer
+                    expire_order_offer.apply_async(args=[next_offer.id], countdown=timeout_seconds)
+                except Exception:
+                    pass
+            else:
+                try:
+                    SmartMatchingEngine.dispatch_order_offer(order)
+                except Exception:
+                    pass
+
+            return {'success': True, 'message': 'Oferta rechazada correctamente.'}
 
     @staticmethod
     def check_nearby_batch_orders(driver_user: User, current_lat: float, current_lng: float) -> list:

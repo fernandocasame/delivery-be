@@ -177,7 +177,7 @@ SIMPLE_JWT = {
 }
 
 # WebSockets Channel Layer Configuration
-REDIS_URL = os.environ.get('REDIS_URL', '')
+REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')
 if REDIS_URL:
     CHANNEL_LAYERS = {
         'default': {
@@ -195,10 +195,20 @@ else:
     }
 
 # Celery Configuration
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/1')
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+
+# Configure Celery Beat Periodic Tasks
+CELERY_BEAT_SCHEDULE = {
+    'expire-pending-offers-sweeper': {
+        'task': 'apps.logistics.tasks.sweep_expired_offers',
+        'schedule': 5.0,
+    },
+}
 
 # Swagger OpenAPI Metadata
 SPECTACULAR_SETTINGS = {
@@ -208,17 +218,3 @@ SPECTACULAR_SETTINGS = {
     'SERVE_INCLUDE_SCHEMA': False,
 }
 
-
-# Celery Configuration
-CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/1')
-CELERY_RESULT_BACKEND = CELERY_BROKER_URL
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-
-# Swagger OpenAPI Metadata
-SPECTACULAR_SETTINGS = {
-    'TITLE': 'Plataforma de Mensajería y Reparto API',
-    'DESCRIPTION': 'API REST y WebSockets para plataforma de logística en tiempo real tipo Uber Flash / Rappi Envíos',
-    'VERSION': '1.0.0',
-    'SERVE_INCLUDE_SCHEMA': False,
-}

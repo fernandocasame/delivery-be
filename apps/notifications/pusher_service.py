@@ -10,6 +10,8 @@ PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'us2')
 
 pusher_client = None
 
+import threading
+
 try:
     import pusher
     pusher_client = pusher.Pusher(
@@ -17,7 +19,8 @@ try:
         key=PUSHER_KEY,
         secret=PUSHER_SECRET,
         cluster=PUSHER_CLUSTER,
-        ssl=True
+        ssl=True,
+        timeout=2
     )
 except ImportError:
     logger.warning("[Pusher] pusher python library not installed, running in mock/log mode.")
@@ -27,11 +30,7 @@ except Exception as e:
 
 class PusherRealtimeService:
     @staticmethod
-    def trigger_event(channels, event_name: str, data: dict):
-        """Dispatches an event to one or more Pusher channels safely."""
-        if not isinstance(channels, list):
-            channels = [channels]
-
+    def _send_pusher(channels, event_name, data):
         if pusher_client:
             try:
                 pusher_client.trigger(channels, event_name, data)
@@ -40,6 +39,19 @@ class PusherRealtimeService:
                 logger.error(f"[PUSHER ERROR] Failed triggering {event_name} on {channels}: {e}")
         else:
             logger.info(f"[PUSHER SIMULATED] Event: {event_name} on Channels: {channels} | Data: {data}")
+
+    @staticmethod
+    def trigger_event(channels, event_name: str, data: dict):
+        """Dispatches an event to one or more Pusher channels safely in a background thread."""
+        if not isinstance(channels, list):
+            channels = [channels]
+
+        thread = threading.Thread(
+            target=PusherRealtimeService._send_pusher,
+            args=(channels, event_name, data),
+            daemon=True
+        )
+        thread.start()
 
     @classmethod
     def trigger_new_order_available(cls, order):
@@ -148,6 +160,7 @@ class PusherRealtimeService:
     def trigger_new_order_available_to_driver(cls, order, driver_id, expires_at):
         """Notifies a specific driver on their private channel about a newly offered order."""
         data = {
+            'event': 'new-order-available',
             'order_id': order.id,
             'formatted_id': f"H{order.id}",
             'origin': order.origin_address,
@@ -165,16 +178,37 @@ class PusherRealtimeService:
             'message': f"Recogida en {order.origin_address[:40]}",
             'expires_at': expires_at.isoformat() if expires_at else None,
         }
+        cls.send_django_channels(f"driver_{driver_id}", data)
         cls.trigger_event(f"driver-{driver_id}", 'new-order-available', data)
 
     @classmethod
     def trigger_order_retracted_from_driver(cls, order, driver_id):
         """Notifies a specific driver to retract/remove a specific order from their radar."""
         data = {
+            'event': 'order-retracted',
             'order_id': order.id,
             'formatted_id': f"H{order.id}",
             'title': 'Pedido Expirado',
             'message': 'El tiempo para aceptar el pedido ha terminado.',
         }
+        cls.send_django_channels(f"driver_{driver_id}", data)
         cls.trigger_event(f"driver-{driver_id}", 'order-retracted', data)
+
+    @staticmethod
+    def send_django_channels(group_name, data):
+        try:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                async_to_sync(channel_layer.group_send)(
+                    group_name,
+                    {
+                        'type': 'order_offer_notification',
+                        'data': data
+                    }
+                )
+        except Exception as e:
+            logger.warning(f"[Django Channels broadcast warning]: {e}")
+
 

@@ -33,27 +33,31 @@ class UpdateLocationRESTView(APIView):
         loc.speed = speed
         loc.save()
 
-        # Event-driven dispatch trigger: if driver is AVAILABLE & APPROVED, check for SEARCHING orders to offer
+        # Asynchronous event-driven dispatch trigger: check for SEARCHING orders in a background thread
         if hasattr(request.user, 'driver_profile'):
             profile = request.user.driver_profile
             if profile.status == 'AVAILABLE' and profile.approval_status == 'APPROVED':
-                try:
-                    from apps.orders.models import Order, OrderStatus
-                    from apps.logistics.models import OrderOffer
-                    from apps.logistics.matching_engine import SmartMatchingEngine
-                    from django.utils import timezone
-                    
-                    searching_orders = Order.objects.filter(status=OrderStatus.SEARCHING)
-                    for order in searching_orders:
-                        has_pending_offer = OrderOffer.objects.filter(
-                            order=order,
-                            status=OrderOffer.OfferStatus.PENDING,
-                            expires_at__gt=timezone.now()
-                        ).exists()
-                        if not has_pending_offer:
-                            SmartMatchingEngine.dispatch_order_offer(order)
-                except Exception as e:
-                    print('[UpdateLocationRESTView order-dispatch error]', e)
+                def _async_check_dispatch():
+                    try:
+                        from apps.orders.models import Order, OrderStatus
+                        from apps.logistics.models import OrderOffer
+                        from apps.logistics.matching_engine import SmartMatchingEngine
+                        from django.utils import timezone
+                        
+                        searching_orders = Order.objects.filter(status=OrderStatus.SEARCHING)
+                        for order in searching_orders:
+                            has_pending_offer = OrderOffer.objects.filter(
+                                order=order,
+                                status=OrderOffer.OfferStatus.PENDING,
+                                expires_at__gt=timezone.now()
+                            ).exists()
+                            if not has_pending_offer:
+                                SmartMatchingEngine.dispatch_order_offer(order)
+                    except Exception as e:
+                        print('[UpdateLocationRESTView order-dispatch error]', e)
+
+                import threading
+                threading.Thread(target=_async_check_dispatch, daemon=True).start()
 
         return Response(DriverLocationSerializer(loc).data)
 
@@ -66,3 +70,14 @@ class DriverAcceptOrderView(APIView):
         if result['success']:
             return Response(result, status=status.HTTP_200_OK)
         return Response(result, status=status.HTTP_409_CONFLICT)
+
+
+class DriverRejectOrderView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, order_id):
+        result = SmartMatchingEngine.reject_order(order_id, request.user)
+        if result['success']:
+            return Response(result, status=status.HTTP_200_OK)
+        return Response(result, status=status.HTTP_400_BAD_REQUEST)
+
