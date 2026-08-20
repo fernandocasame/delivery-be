@@ -214,6 +214,14 @@ class RunMigrationsView(APIView):
         except Exception as e:
             out.write(f"Migrate failed: {str(e)}\n")
             
+        out.write("=== DB Check ===\n")
+        try:
+            from apps.logistics.models import OrderOffer
+            count = OrderOffer.objects.count()
+            out.write(f"OrderOffer table exists! Record count: {count}\n")
+        except Exception as e:
+            out.write(f"OrderOffer query failed: {str(e)}\n")
+
         result = out.getvalue()
         
         # Optional force restart
