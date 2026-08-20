@@ -15,16 +15,19 @@ class OrderSerializer(serializers.ModelSerializer):
     def get_expires_at(self, obj):
         request = self.context.get('request')
         if request and request.user and request.user.is_authenticated and request.user.role == 'DRIVER':
-            from apps.logistics.models import OrderOffer
-            from django.utils import timezone
-            offer = OrderOffer.objects.filter(
-                order=obj,
-                driver=request.user,
-                status=OrderOffer.OfferStatus.PENDING,
-                expires_at__gt=timezone.now()
-            ).first()
-            if offer:
-                return offer.expires_at.isoformat()
+            try:
+                from apps.logistics.models import OrderOffer
+                from django.utils import timezone
+                offer = OrderOffer.objects.filter(
+                    order=obj,
+                    driver=request.user,
+                    status=OrderOffer.OfferStatus.PENDING,
+                    expires_at__gt=timezone.now()
+                ).first()
+                if offer:
+                    return offer.expires_at.isoformat()
+            except Exception as e:
+                print('[OrderSerializer get_expires_at error]', e)
         return None
 
 

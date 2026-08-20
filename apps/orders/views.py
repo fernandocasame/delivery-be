@@ -23,20 +23,24 @@ class OrderListCreateView(generics.ListCreateAPIView):
             return Order.objects.all().order_by('-created_at')
         elif user.role == 'DRIVER':
             from django.db.models import Q
-            from apps.logistics.models import OrderOffer
-            from django.utils import timezone
-            
-            # Fetch order IDs where this driver has a pending active offer
-            active_offer_order_ids = OrderOffer.objects.filter(
-                driver=user,
-                status=OrderOffer.OfferStatus.PENDING,
-                expires_at__gt=timezone.now()
-            ).values_list('order_id', flat=True)
+            try:
+                from apps.logistics.models import OrderOffer
+                from django.utils import timezone
+                
+                # Fetch order IDs where this driver has a pending active offer
+                active_offer_order_ids = OrderOffer.objects.filter(
+                    driver=user,
+                    status=OrderOffer.OfferStatus.PENDING,
+                    expires_at__gt=timezone.now()
+                ).values_list('order_id', flat=True)
 
-            return Order.objects.filter(
-                Q(driver=user) | 
-                Q(id__in=active_offer_order_ids, status=OrderStatus.SEARCHING)
-            ).order_by('-created_at')
+                return Order.objects.filter(
+                    Q(driver=user) | 
+                    Q(id__in=active_offer_order_ids, status=OrderStatus.SEARCHING)
+                ).order_by('-created_at')
+            except Exception as e:
+                print('[DRIVER get_queryset error]', e)
+                return Order.objects.filter(driver=user).order_by('-created_at')
         return Order.objects.filter(client=user).order_by('-created_at')
 
     def perform_create(self, serializer):

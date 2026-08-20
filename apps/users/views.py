@@ -51,20 +51,23 @@ class DriverStatusToggleView(APIView):
             
             # Event-driven dispatch trigger: if driver went AVAILABLE, check for SEARCHING orders to offer
             if profile.status == DriverProfile.Status.AVAILABLE:
-                from apps.orders.models import Order, OrderStatus
-                from apps.logistics.models import OrderOffer
-                from apps.logistics.matching_engine import SmartMatchingEngine
-                from django.utils import timezone
-                
-                searching_orders = Order.objects.filter(status=OrderStatus.SEARCHING)
-                for order in searching_orders:
-                    has_pending_offer = OrderOffer.objects.filter(
-                        order=order,
-                        status=OrderOffer.OfferStatus.PENDING,
-                        expires_at__gt=timezone.now()
-                    ).exists()
-                    if not has_pending_offer:
-                        SmartMatchingEngine.dispatch_order_offer(order)
+                try:
+                    from apps.orders.models import Order, OrderStatus
+                    from apps.logistics.models import OrderOffer
+                    from apps.logistics.matching_engine import SmartMatchingEngine
+                    from django.utils import timezone
+                    
+                    searching_orders = Order.objects.filter(status=OrderStatus.SEARCHING)
+                    for order in searching_orders:
+                        has_pending_offer = OrderOffer.objects.filter(
+                            order=order,
+                            status=OrderOffer.OfferStatus.PENDING,
+                            expires_at__gt=timezone.now()
+                        ).exists()
+                        if not has_pending_offer:
+                            SmartMatchingEngine.dispatch_order_offer(order)
+                except Exception as e:
+                    print('[DriverStatusToggleView order-dispatch error]', e)
 
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
