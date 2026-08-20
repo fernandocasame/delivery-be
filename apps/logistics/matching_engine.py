@@ -28,7 +28,6 @@ class SmartMatchingEngine:
         except Exception as e:
             print('[get_nearby_eligible_drivers clean error]', e)
             
-        # 1. Try to find drivers with matching vehicle type within 50 km
         max_dist_km = 50.0
         locations_matching_vehicle = DriverLocation.objects.filter(
             driver__driver_profile__approval_status=DriverProfile.ApprovalStatus.APPROVED,
@@ -36,6 +35,7 @@ class SmartMatchingEngine:
             driver__driver_profile__vehicle_type=order.vehicle_type
         )
         
+        # 1. Try to find drivers with matching vehicle type within 50 km
         ranked_drivers = []
         for loc in locations_matching_vehicle:
             dist_km = haversine_distance_km(
@@ -49,10 +49,14 @@ class SmartMatchingEngine:
                 })
         
         if ranked_drivers:
-            ranked_drivers.sort(key=lambda x: x['distance_km'])
-            return ranked_drivers
+            # Deduplicate by driver ID
+            seen_ids = set()
+            unique = [d for d in ranked_drivers if not (d['driver'].id in seen_ids or seen_ids.add(d['driver'].id))]
+            unique.sort(key=lambda x: x['distance_km'])
+            return unique
 
         # 2. Fallback: Try matching vehicle type at any distance (unlimited radius)
+        ranked_drivers = []
         for loc in locations_matching_vehicle:
             dist_km = haversine_distance_km(
                 order.origin_latitude, order.origin_longitude,
@@ -64,10 +68,13 @@ class SmartMatchingEngine:
             })
 
         if ranked_drivers:
-            ranked_drivers.sort(key=lambda x: x['distance_km'])
-            return ranked_drivers
+            seen_ids = set()
+            unique = [d for d in ranked_drivers if not (d['driver'].id in seen_ids or seen_ids.add(d['driver'].id))]
+            unique.sort(key=lambda x: x['distance_km'])
+            return unique
 
         # 3. Fallback: Match any available approved driver in the system regardless of vehicle type or distance
+        ranked_drivers = []
         locations_any_driver = DriverLocation.objects.filter(
             driver__driver_profile__approval_status=DriverProfile.ApprovalStatus.APPROVED,
             driver__driver_profile__status=DriverProfile.Status.AVAILABLE
@@ -82,8 +89,10 @@ class SmartMatchingEngine:
                 'distance_km': round(dist_km, 2)
             })
 
-        ranked_drivers.sort(key=lambda x: x['distance_km'])
-        return ranked_drivers
+        seen_ids = set()
+        unique = [d for d in ranked_drivers if not (d['driver'].id in seen_ids or seen_ids.add(d['driver'].id))]
+        unique.sort(key=lambda x: x['distance_km'])
+        return unique
 
     @staticmethod
     def dispatch_order_offer(order: Order):
