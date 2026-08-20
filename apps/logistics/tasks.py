@@ -58,6 +58,6 @@ def expire_order_offer(offer_id):
             # Schedule the next expiration task
             expire_order_offer.apply_async(args=[next_offer.id], countdown=timeout_seconds)
         else:
-            # No more candidates, we can keep the order in SEARCHING status. 
-            # Since no active offers exist, it won't show in any driver's radar list.
-            pass
+            # No more candidates in current list. Restart matching loop to search again (can cover new/updated drivers)
+            from apps.logistics.matching_engine import SmartMatchingEngine
+            SmartMatchingEngine.dispatch_order_offer(offer.order)
