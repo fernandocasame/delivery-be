@@ -22,17 +22,22 @@ def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) ->
 class SmartMatchingEngine:
     @staticmethod
     def get_nearby_eligible_drivers(order: Order) -> list:
-        # Search range up to 50 km to round up candidates
+        # Run clean up of stale offers first to prevent stuck matches
+        try:
+            SmartMatchingEngine.check_and_expire_stale_offers()
+        except Exception as e:
+            print('[get_nearby_eligible_drivers clean error]', e)
+            
+        # 1. Try to find drivers with matching vehicle type within 50 km
         max_dist_km = 50.0
-        
-        locations = DriverLocation.objects.filter(
+        locations_matching_vehicle = DriverLocation.objects.filter(
             driver__driver_profile__approval_status=DriverProfile.ApprovalStatus.APPROVED,
             driver__driver_profile__status=DriverProfile.Status.AVAILABLE,
             driver__driver_profile__vehicle_type=order.vehicle_type
         )
-
+        
         ranked_drivers = []
-        for loc in locations:
+        for loc in locations_matching_vehicle:
             dist_km = haversine_distance_km(
                 order.origin_latitude, order.origin_longitude,
                 loc.latitude, loc.longitude
@@ -42,8 +47,41 @@ class SmartMatchingEngine:
                     'driver': loc.driver,
                     'distance_km': round(dist_km, 2)
                 })
+        
+        if ranked_drivers:
+            ranked_drivers.sort(key=lambda x: x['distance_km'])
+            return ranked_drivers
 
-        # Sort strictly by distance (closest first)
+        # 2. Fallback: Try matching vehicle type at any distance (unlimited radius)
+        for loc in locations_matching_vehicle:
+            dist_km = haversine_distance_km(
+                order.origin_latitude, order.origin_longitude,
+                loc.latitude, loc.longitude
+            )
+            ranked_drivers.append({
+                'driver': loc.driver,
+                'distance_km': round(dist_km, 2)
+            })
+
+        if ranked_drivers:
+            ranked_drivers.sort(key=lambda x: x['distance_km'])
+            return ranked_drivers
+
+        # 3. Fallback: Match any available approved driver in the system regardless of vehicle type or distance
+        locations_any_driver = DriverLocation.objects.filter(
+            driver__driver_profile__approval_status=DriverProfile.ApprovalStatus.APPROVED,
+            driver__driver_profile__status=DriverProfile.Status.AVAILABLE
+        )
+        for loc in locations_any_driver:
+            dist_km = haversine_distance_km(
+                order.origin_latitude, order.origin_longitude,
+                loc.latitude, loc.longitude
+            )
+            ranked_drivers.append({
+                'driver': loc.driver,
+                'distance_km': round(dist_km, 2)
+            })
+
         ranked_drivers.sort(key=lambda x: x['distance_km'])
         return ranked_drivers
 
@@ -174,4 +212,60 @@ class SmartMatchingEngine:
             )
             return list(nearby_orders[:3])
         return []
+
+    @staticmethod
+    def check_and_expire_stale_offers():
+        # Find all pending offers that have expired
+        now = timezone.now()
+        try:
+            stale_offers = OrderOffer.objects.filter(
+                status=OrderOffer.OfferStatus.PENDING,
+                expires_at__lte=now
+            )
+            for offer in stale_offers:
+                with transaction.atomic():
+                    try:
+                        locked_offer = OrderOffer.objects.select_for_update().get(id=offer.id)
+                    except OrderOffer.DoesNotExist:
+                        continue
+                        
+                    if locked_offer.status != OrderOffer.OfferStatus.PENDING:
+                        continue
+                        
+                    locked_offer.status = OrderOffer.OfferStatus.EXPIRED
+                    locked_offer.save()
+                    
+                    PusherRealtimeService.trigger_order_retracted_from_driver(locked_offer.order, locked_offer.driver_id)
+                    
+                    next_offer = OrderOffer.objects.filter(
+                        order=locked_offer.order,
+                        sequence=locked_offer.sequence + 1
+                    ).first()
+                    
+                    if next_offer:
+                        from apps.config_params.models import SystemParameter
+                        timeout_seconds = int(SystemParameter.get_param('order_offer_timeout_seconds', '15'))
+                        
+                        next_offer.status = OrderOffer.OfferStatus.PENDING
+                        next_offer.expires_at = timezone.now() + timedelta(seconds=timeout_seconds)
+                        next_offer.save()
+                        
+                        PusherRealtimeService.trigger_new_order_available_to_driver(
+                            order=locked_offer.order,
+                            driver_id=next_offer.driver_id,
+                            expires_at=next_offer.expires_at
+                        )
+                        
+                        try:
+                            from apps.logistics.tasks import expire_order_offer
+                            expire_order_offer.apply_async(args=[next_offer.id], countdown=timeout_seconds)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            SmartMatchingEngine.dispatch_order_offer(locked_offer.order)
+                        except Exception:
+                            pass
+        except Exception as e:
+            print('[check_and_expire_stale_offers error]', e)
 
