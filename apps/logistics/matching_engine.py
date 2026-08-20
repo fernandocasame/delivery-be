@@ -106,6 +106,15 @@ class SmartMatchingEngine:
                 # No candidates in range, leave status as SEARCHING
                 return
 
+            # Deduplicate drivers by driver ID to prevent duplicate entry DB exceptions
+            seen_drivers = set()
+            unique_drivers = []
+            for item in drivers:
+                if item['driver'].id not in seen_drivers:
+                    seen_drivers.add(item['driver'].id)
+                    unique_drivers.append(item)
+            drivers = unique_drivers
+
             timeout_seconds = int(SystemParameter.get_param('order_offer_timeout_seconds', '15'))
             
             # Pre-generate offers for all candidates in sorted sequence
