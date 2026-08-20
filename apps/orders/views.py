@@ -199,12 +199,30 @@ class RunMigrationsView(APIView):
 
     def get(self, request):
         import io
-        from django.core.management import call_command
         from django.http import JsonResponse
+        from apps.users.models import DriverProfile
+        from apps.logistics.models import DriverLocation, OrderOffer
+        from apps.orders.models import Order, OrderStatus
+        
         out = io.StringIO()
+        out.write("=== Drivers List ===\n")
         try:
-            call_command('migrate', stdout=out, stderr=out)
-            result = out.getvalue()
-            return JsonResponse({'status': 'success', 'output': result})
+            for d in DriverProfile.objects.all():
+                loc_exists = DriverLocation.objects.filter(driver=d.user).exists()
+                loc_str = "None"
+                if loc_exists:
+                    loc = DriverLocation.objects.filter(driver=d.user).first()
+                    loc_str = f"({loc.latitude}, {loc.longitude})"
+                out.write(f"Driver: {d.user.email} | Status: {d.status} | Approval: {d.approval_status} | Vehicle: {d.vehicle_type} | Location: {loc_str}\n")
         except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e), 'output': out.getvalue()}, status=500)
+            out.write(f"Driver list failed: {str(e)}\n")
+            
+        out.write("\n=== Searching Orders ===\n")
+        try:
+            for o in Order.objects.filter(status=OrderStatus.SEARCHING):
+                out.write(f"Order #{o.id} | Vehicle: {o.vehicle_type} | Origin: ({o.origin_latitude}, {o.origin_longitude})\n")
+        except Exception as e:
+            out.write(f"Order query failed: {str(e)}\n")
+
+        result = out.getvalue()
+        return JsonResponse({'status': 'success', 'output': result})
