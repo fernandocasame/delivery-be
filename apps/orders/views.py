@@ -62,7 +62,10 @@ class OrderListCreateView(generics.ListCreateAPIView):
         )
 
         # Trigger sequential smart driver matching (no global broadcast)
-        SmartMatchingEngine.dispatch_order_offer(order)
+        try:
+            SmartMatchingEngine.dispatch_order_offer(order)
+        except Exception as e:
+            print('[Order Creation Matching Engine Warning]', e)
 
 
 
