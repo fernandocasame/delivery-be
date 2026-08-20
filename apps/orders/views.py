@@ -224,5 +224,14 @@ class RunMigrationsView(APIView):
         except Exception as e:
             out.write(f"Order query failed: {str(e)}\n")
 
+        out.write("\n=== Matching Engine Test ===\n")
+        try:
+            from apps.logistics.matching_engine import SmartMatchingEngine
+            for o in Order.objects.filter(status=OrderStatus.SEARCHING):
+                drivers = SmartMatchingEngine.get_nearby_eligible_drivers(o)
+                out.write(f"Order #{o.id} eligible drivers: {[{'email': d['driver'].email, 'dist': d['distance_km']} for d in drivers]}\n")
+        except Exception as e:
+            out.write(f"Matching test failed: {str(e)}\n")
+
         result = out.getvalue()
         return JsonResponse({'status': 'success', 'output': result})
