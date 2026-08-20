@@ -22,8 +22,8 @@ def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) ->
 class SmartMatchingEngine:
     @staticmethod
     def get_nearby_eligible_drivers(order: Order) -> list:
-        # Search range up to 20 km to round up candidates
-        max_dist_km = 20.0
+        # Search range up to 50 km to round up candidates
+        max_dist_km = 50.0
         
         locations = DriverLocation.objects.filter(
             driver__driver_profile__approval_status=DriverProfile.ApprovalStatus.APPROVED,
