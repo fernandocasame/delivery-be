@@ -144,3 +144,37 @@ class PusherRealtimeService:
 
         cls.trigger_event(channels, 'order-delivered', data)
 
+    @classmethod
+    def trigger_new_order_available_to_driver(cls, order, driver_id, expires_at):
+        """Notifies a specific driver on their private channel about a newly offered order."""
+        data = {
+            'order_id': order.id,
+            'formatted_id': f"H{order.id}",
+            'origin': order.origin_address,
+            'destination': order.destination_address,
+            'cost': str(order.total_cost),
+            'earnings': str(order.driver_earnings),
+            'distance_km': order.distance_km,
+            'weight_kg': order.weight_kg,
+            'origin_latitude': order.origin_latitude,
+            'origin_longitude': order.origin_longitude,
+            'destination_latitude': order.destination_latitude,
+            'destination_longitude': order.destination_longitude,
+            'status': order.status,
+            'title': '⚡ ¡Nuevo Pedido Disponible!',
+            'message': f"Recogida en {order.origin_address[:40]}",
+            'expires_at': expires_at.isoformat() if expires_at else None,
+        }
+        cls.trigger_event(f"driver-{driver_id}", 'new-order-available', data)
+
+    @classmethod
+    def trigger_order_retracted_from_driver(cls, order, driver_id):
+        """Notifies a specific driver to retract/remove a specific order from their radar."""
+        data = {
+            'order_id': order.id,
+            'formatted_id': f"H{order.id}",
+            'title': 'Pedido Expirado',
+            'message': 'El tiempo para aceptar el pedido ha terminado.',
+        }
+        cls.trigger_event(f"driver-{driver_id}", 'order-retracted', data)
+

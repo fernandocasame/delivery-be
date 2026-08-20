@@ -23,7 +23,20 @@ class OrderListCreateView(generics.ListCreateAPIView):
             return Order.objects.all().order_by('-created_at')
         elif user.role == 'DRIVER':
             from django.db.models import Q
-            return Order.objects.filter(Q(driver=user) | Q(driver__isnull=True, status__in=[OrderStatus.CREATED, OrderStatus.SEARCHING])).order_by('-created_at')
+            from apps.logistics.models import OrderOffer
+            from django.utils import timezone
+            
+            # Fetch order IDs where this driver has a pending active offer
+            active_offer_order_ids = OrderOffer.objects.filter(
+                driver=user,
+                status=OrderOffer.OfferStatus.PENDING,
+                expires_at__gt=timezone.now()
+            ).values_list('order_id', flat=True)
+
+            return Order.objects.filter(
+                Q(driver=user) | 
+                Q(id__in=active_offer_order_ids, status=OrderStatus.SEARCHING)
+            ).order_by('-created_at')
         return Order.objects.filter(client=user).order_by('-created_at')
 
     def perform_create(self, serializer):
@@ -44,11 +57,8 @@ class OrderListCreateView(generics.ListCreateAPIView):
             total_cost=pricing['total_cost']
         )
 
-        # Trigger smart driver matching asynchronously
+        # Trigger sequential smart driver matching (no global broadcast)
         SmartMatchingEngine.dispatch_order_offer(order)
-
-        # Trigger Pusher Realtime Event to Radar of all drivers
-        PusherRealtimeService.trigger_new_order_available(order)
 
 
 
@@ -168,22 +178,13 @@ class OrderAcceptView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, pk):
+        result = SmartMatchingEngine.accept_order(order_id=pk, driver_user=request.user)
+        if not result.get('success'):
+            return Response({'error': result.get('message')}, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             order = Order.objects.get(pk=pk)
         except Order.DoesNotExist:
             return Response({'error': 'Pedido no encontrado'}, status=status.HTTP_404_NOT_FOUND)
 
-        if order.status not in [OrderStatus.CREATED, OrderStatus.SEARCHING]:
-            return Response({'error': 'Este pedido ya fue tomado por otro repartidor'}, status=status.HTTP_400_BAD_REQUEST)
-
-        order.driver = request.user
-        order.status = OrderStatus.ACCEPTED
-        order.save()
-
-        # Trigger Pusher Realtime Event for Accepted
-        PusherRealtimeService.trigger_order_accepted(order)
-
         return Response(OrderSerializer(order).data)
-
-
-
