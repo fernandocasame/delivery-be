@@ -25,7 +25,14 @@ class OrderListCreateView(generics.ListCreateAPIView):
             from django.db.models import Q
             try:
                 from apps.logistics.models import OrderOffer
+                from apps.logistics.matching_engine import SmartMatchingEngine
                 from django.utils import timezone
+                
+                # Run synchronous sweep of expired offers to advance matching sequences
+                try:
+                    SmartMatchingEngine.check_and_expire_stale_offers()
+                except Exception as ex:
+                    print('[get_queryset check_and_expire_stale_offers warning]', ex)
                 
                 # Fetch order IDs where this driver has a pending active offer
                 active_offer_order_ids = OrderOffer.objects.filter(
