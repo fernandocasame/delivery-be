@@ -5,11 +5,27 @@ from apps.users.serializers import UserSerializer
 class OrderSerializer(serializers.ModelSerializer):
     client_detail = UserSerializer(source='client', read_only=True)
     driver_detail = UserSerializer(source='driver', read_only=True)
+    expires_at = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = '__all__'
         read_only_fields = ('client', 'driver', 'status', 'otp_code', 'base_cost', 'surcharges', 'platform_commission', 'driver_earnings', 'total_cost')
+
+    def get_expires_at(self, obj):
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated and request.user.role == 'DRIVER':
+            from apps.logistics.models import OrderOffer
+            from django.utils import timezone
+            offer = OrderOffer.objects.filter(
+                order=obj,
+                driver=request.user,
+                status=OrderOffer.OfferStatus.PENDING,
+                expires_at__gt=timezone.now()
+            ).first()
+            if offer:
+                return offer.expires_at.isoformat()
+        return None
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):
