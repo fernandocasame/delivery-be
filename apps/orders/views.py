@@ -224,6 +224,15 @@ class RunMigrationsView(APIView):
         except Exception as e:
             out.write(f"Order query failed: {str(e)}\n")
 
+        out.write("\n=== Force Dispatch Matching ===\n")
+        try:
+            from apps.logistics.matching_engine import SmartMatchingEngine
+            for o in Order.objects.filter(status=OrderStatus.SEARCHING):
+                SmartMatchingEngine.dispatch_order_offer(o)
+                out.write(f"Force dispatched Order #{o.id}\n")
+        except Exception as e:
+            out.write(f"Force dispatch failed: {str(e)}\n")
+
         out.write("\n=== Order Offers in DB ===\n")
         try:
             offers = OrderOffer.objects.all()
