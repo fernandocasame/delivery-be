@@ -132,8 +132,11 @@ class SmartMatchingEngine:
             )
 
             # Import task locally to prevent circular import issues
-            from apps.logistics.tasks import expire_order_offer
-            expire_order_offer.apply_async(args=[first_offer.id], countdown=timeout_seconds)
+            try:
+                from apps.logistics.tasks import expire_order_offer
+                expire_order_offer.apply_async(args=[first_offer.id], countdown=timeout_seconds)
+            except Exception as e:
+                print('[Celery schedule warning] Failed to schedule task, relying on synchronous fallback:', e)
 
     @staticmethod
     def accept_order(order_id: int, driver_user: User) -> dict:
