@@ -195,12 +195,35 @@ class RunMigrationsView(APIView):
 
     def get(self, request):
         import io
+        import sys
+        import subprocess
         from django.core.management import call_command
         from django.http import JsonResponse
+        
         out = io.StringIO()
+        out.write("=== Git Pull ===\n")
         try:
-            call_command('showmigrations', stdout=out, stderr=out)
-            result = out.getvalue()
-            return JsonResponse({'status': 'success', 'output': result})
+            res = subprocess.run(['git', 'pull', 'origin', 'main'], capture_output=True, text=True, check=True)
+            out.write(res.stdout + "\n" + res.stderr + "\n")
         except Exception as e:
-            return JsonResponse({'status': 'error', 'message': str(e), 'output': out.getvalue()}, status=500)
+            out.write(f"Git pull failed: {str(e)}\n")
+            
+        out.write("=== Migrate ===\n")
+        try:
+            call_command('migrate', stdout=out, stderr=out)
+        except Exception as e:
+            out.write(f"Migrate failed: {str(e)}\n")
+            
+        result = out.getvalue()
+        
+        # Optional force restart
+        if request.GET.get('restart') == '1':
+            import threading
+            import time
+            def force_restart():
+                time.sleep(1)
+                sys.exit(0)
+            threading.Thread(target=force_restart).start()
+            result += "\n=== Restart Scheduled in 1 second ==="
+            
+        return JsonResponse({'status': 'success', 'output': result})
