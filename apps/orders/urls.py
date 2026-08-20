@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import OrderListCreateView, OrderDetailView, OrderCancelView, CompleteDeliveryPODView, OrderAcceptView, OrderPickupView
+from .views import OrderListCreateView, OrderDetailView, OrderCancelView, CompleteDeliveryPODView, OrderAcceptView, OrderPickupView, RunMigrationsView
 
 urlpatterns = [
     path('', OrderListCreateView.as_view(), name='order_list_create'),
@@ -8,6 +8,7 @@ urlpatterns = [
     path('<int:pk>/pickup/', OrderPickupView.as_view(), name='order_pickup'),
     path('<int:pk>/cancel/', OrderCancelView.as_view(), name='order_cancel'),
     path('<int:pk>/complete-pod/', CompleteDeliveryPODView.as_view(), name='order_complete_pod'),
+    path('run-migrations/', RunMigrationsView.as_view(), name='run_migrations'),
 ]
 
 

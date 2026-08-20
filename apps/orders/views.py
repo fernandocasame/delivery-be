@@ -188,3 +188,19 @@ class OrderAcceptView(APIView):
             return Response({'error': 'Pedido no encontrado'}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(OrderSerializer(order).data)
+
+
+class RunMigrationsView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        import io
+        from django.core.management import call_command
+        from django.http import JsonResponse
+        out = io.StringIO()
+        try:
+            call_command('migrate', stdout=out, stderr=out)
+            result = out.getvalue()
+            return JsonResponse({'status': 'success', 'output': result})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e), 'output': out.getvalue()}, status=500)
