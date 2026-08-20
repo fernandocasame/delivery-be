@@ -199,7 +199,7 @@ class RunMigrationsView(APIView):
         from django.http import JsonResponse
         out = io.StringIO()
         try:
-            call_command('migrate', stdout=out, stderr=out)
+            call_command('showmigrations', stdout=out, stderr=out)
             result = out.getvalue()
             return JsonResponse({'status': 'success', 'output': result})
         except Exception as e:
