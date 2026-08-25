@@ -28,14 +28,14 @@ class SmartMatchingEngine:
         except Exception as e:
             print('[get_nearby_eligible_drivers clean error]', e)
             
-        max_dist_km = 50.0
+        max_dist_km = float(SystemParameter.get_param('max_offer_radius_km', '5.0'))
         locations_matching_vehicle = DriverLocation.objects.filter(
             driver__driver_profile__approval_status=DriverProfile.ApprovalStatus.APPROVED,
             driver__driver_profile__status=DriverProfile.Status.AVAILABLE,
             driver__driver_profile__vehicle_type=order.vehicle_type
         )
         
-        # 1. Try to find drivers with matching vehicle type within 50 km
+        # 1. Try to find drivers with matching vehicle type within the specified radius
         ranked_drivers = []
         for loc in locations_matching_vehicle:
             dist_km = haversine_distance_km(
