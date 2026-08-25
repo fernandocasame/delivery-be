@@ -10,6 +10,7 @@ class DriverProfileSerializer(serializers.ModelSerializer):
     phone_number = serializers.ReadOnlyField(source='user.phone_number')
     latitude = serializers.SerializerMethodField()
     longitude = serializers.SerializerMethodField()
+    total_earnings = serializers.SerializerMethodField()
 
     class Meta:
         model = DriverProfile
@@ -25,6 +26,16 @@ class DriverProfileSerializer(serializers.ModelSerializer):
         if hasattr(obj.user, 'current_location') and obj.user.current_location:
             return obj.user.current_location.longitude
         return None
+
+    def get_total_earnings(self, obj):
+        from apps.orders.models import Order, OrderStatus
+        from django.db.models import Sum
+        completed_statuses = [OrderStatus.DELIVERED, OrderStatus.FINISHED]
+        result = Order.objects.filter(
+            driver=obj.user,
+            status__in=completed_statuses
+        ).aggregate(total=Sum('driver_earnings'))
+        return float(result['total'] or 0.0)
 
 
 class UserSerializer(serializers.ModelSerializer):
