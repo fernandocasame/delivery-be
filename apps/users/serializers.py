@@ -17,13 +17,13 @@ class DriverProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ('approval_status', 'rejection_reason', 'rating_avg', 'total_ratings', 'acceptance_rate', 'completed_orders_count')
 
     def get_latitude(self, obj):
-        if hasattr(obj.user, 'location') and obj.user.location:
-            return obj.user.location.latitude
+        if hasattr(obj.user, 'current_location') and obj.user.current_location:
+            return obj.user.current_location.latitude
         return None
 
     def get_longitude(self, obj):
-        if hasattr(obj.user, 'location') and obj.user.location:
-            return obj.user.location.longitude
+        if hasattr(obj.user, 'current_location') and obj.user.current_location:
+            return obj.user.current_location.longitude
         return None
 
 
