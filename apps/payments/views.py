@@ -94,6 +94,12 @@ class PolarWebhookView(APIView):
                     order.status = OrderStatus.SEARCHING
                     order.save()
 
+                    try:
+                        from apps.logistics.matching_engine import SmartMatchingEngine
+                        SmartMatchingEngine.dispatch_order_offer(order)
+                    except Exception as match_err:
+                        logger.warning(f"[Polar Webhook matching engine dispatch failed]: {match_err}")
+
                     PaymentLog.objects.create(
                         user=order.client,
                         order=order,
