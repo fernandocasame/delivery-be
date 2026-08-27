@@ -97,10 +97,20 @@ class PolarWebhookView(APIView):
                             amount=amount,
                             description=f"Pago / Recarga Polar ({event_type})"
                         )
+
+                        from .models import PaymentLog
+                        PaymentLog.objects.create(
+                            user=user,
+                            amount=amount,
+                            payment_method='POLAR',
+                            status='SUCCESS',
+                            description=f"Pago recibido vía Polar ({event_type})"
+                        )
                     logger.info(f"[POLAR PAYMENT PROCESSED] Added ${amount} for {customer_email}")
                 except User.DoesNotExist:
                     logger.warning(f"[Polar Webhook] User with email {customer_email} not found.")
 
         return Response({'status': 'success', 'log_id': webhook_log.id}, status=status.HTTP_200_OK)
+
 
 

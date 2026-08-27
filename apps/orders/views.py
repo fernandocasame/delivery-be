@@ -62,6 +62,17 @@ class OrderListCreateView(generics.ListCreateAPIView):
             # Simulate transaction failure cases (e.g. CVV is 777, ends in 9999, or is 4000000000000000)
             clean_number = card_number.replace(' ', '').replace('-', '')
             if card_cvv == '777' or clean_number.endswith('9999') or clean_number == '4000000000000000':
+                try:
+                    from apps.payments.models import PaymentLog
+                    PaymentLog.objects.create(
+                        user=self.request.user,
+                        amount=data.get('total_cost', 0.00),
+                        payment_method='CARD',
+                        status='REJECTED',
+                        description='Transacción rechazada: Fondos insuficientes o tarjeta inválida.'
+                    )
+                except Exception as log_err:
+                    print('[PaymentLog Error]', log_err)
                 raise serializers.ValidationError({"error": "Transacción rechazada: Fondos insuficientes o tarjeta inválida."})
 
         pricing = PricingEngine.calculate_price(
@@ -81,12 +92,27 @@ class OrderListCreateView(generics.ListCreateAPIView):
             is_paid=(payment_method == 'CARD') # Mark as paid if card transaction passes
         )
 
+        # Log successful payment / order transaction in PaymentLog
+        try:
+            from apps.payments.models import PaymentLog
+            PaymentLog.objects.create(
+                user=self.request.user,
+                order=order,
+                amount=order.total_cost,
+                payment_method=payment_method,
+                status='SUCCESS',
+                description=f"Pago registrado para Pedido #{order.id} ({payment_method})"
+            )
+        except Exception as log_err:
+            print('[PaymentLog Order Success Error]', log_err)
+
         # Trigger sequential smart driver matching (no global broadcast)
         try:
             from apps.logistics.matching_engine import SmartMatchingEngine
             SmartMatchingEngine.dispatch_order_offer(order)
         except Exception as e:
             print('[Order Creation Matching Engine Warning]', e)
+
 
 
 

@@ -18,6 +18,8 @@ class TransactionType(models.TextChoices):
     WITHDRAWAL = 'WITHDRAWAL', 'Retiro a cuenta bancaria'
     BONUS = 'BONUS', 'Bono por meta'
     PENALTY = 'PENALTY', 'Penalización'
+    ORDER_PAYMENT = 'ORDER_PAYMENT', 'Pago de Pedido'
+    REFUND = 'REFUND', 'Reembolso'
 
 
 class WalletTransaction(models.Model):
@@ -45,4 +47,23 @@ class WebhookLog(models.Model):
 
     def __str__(self):
         return f"{self.provider} - {self.event_type} ({self.status})"
+
+
+class PaymentLog(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='payment_logs')
+    order = models.ForeignKey('orders.Order', on_delete=models.SET_NULL, null=True, blank=True, related_name='payment_logs')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_method = models.CharField(max_length=50)
+    status = models.CharField(max_length=30, default='SUCCESS')
+    transaction_id = models.CharField(max_length=100, blank=True, null=True)
+    description = models.CharField(max_length=255)
+    raw_response = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"PaymentLog #{self.id} | {self.payment_method} - ${self.amount} ({self.status})"
+
 
