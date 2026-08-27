@@ -4,7 +4,7 @@ import logging
 from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import DriverWallet, WalletTransaction, TransactionType, WebhookLog
+from .models import DriverWallet, WalletTransaction, TransactionType, WebhookLog, PaymentLog
 from .serializers import DriverWalletSerializer
 
 
@@ -111,6 +111,63 @@ class PolarWebhookView(APIView):
                     logger.warning(f"[Polar Webhook] User with email {customer_email} not found.")
 
         return Response({'status': 'success', 'log_id': webhook_log.id}, status=status.HTTP_200_OK)
+
+
+class CreatePolarCheckoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        token = os.environ.get('POLAR_API_TOKEN', 'polar_oat_Ym8K4i0cM5SqoOA93oq605gPvrla7g1INECmr1Oj7yB')
+        product_id = os.environ.get('POLAR_PRODUCT_ID', 'b8285672-d16d-4c78-ad49-7a30e0d810c2')
+        env = os.environ.get('POLAR_ENV', 'sandbox')
+
+        if not token or not product_id:
+            return Response(
+                {'error': 'Polar.sh no está configurado (POLAR_API_TOKEN o POLAR_PRODUCT_ID faltante).'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            from polar_sdk import Polar
+            client = Polar(access_token=token, server=env)
+
+            success_url = request.data.get('success_url') or 'https://delivery.api.softnow.info/api/docs/'
+            order_id = request.data.get('order_id')
+
+            checkout_data = {
+                'products': [product_id],
+                'customer_email': request.user.email,
+                'success_url': success_url,
+            }
+            if order_id:
+                checkout_data['metadata'] = {'order_id': str(order_id), 'user_id': str(request.user.id)}
+
+            checkout = client.checkouts.create(request=checkout_data)
+            checkout_url = getattr(checkout, 'url', None)
+            checkout_id = getattr(checkout, 'id', None)
+
+            # Record PaymentLog in DB as PENDING
+            PaymentLog.objects.create(
+                user=request.user,
+                order_id=order_id,
+                amount=0.00,
+                payment_method='POLAR',
+                status='PENDING',
+                transaction_id=str(checkout_id),
+                description=f"Sesión de Pago Polar iniciada (Product ID: {product_id[:8]}...)",
+                raw_response={'checkout_url': checkout_url, 'checkout_id': checkout_id, 'product_id': product_id}
+            )
+
+            return Response({
+                'checkout_url': checkout_url,
+                'checkout_id': checkout_id,
+                'product_id': product_id
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            logger.error(f"[Polar Checkout Error]: {e}")
+            return Response({'error': f"Error al generar sesión de pago en Polar: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 
