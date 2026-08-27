@@ -108,10 +108,10 @@ class OrderCancelView(APIView):
         if order.status in [OrderStatus.DELIVERED, OrderStatus.FINISHED, OrderStatus.CANCELLED]:
             return Response({'error': 'Este pedido ya no puede ser cancelado'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Calculate 5% cancellation penalty & 100% original value refund
+        # Calculate 5% cancellation penalty & 95% refund (retaining 5%)
         original_cost = float(order.total_cost)
         cancellation_fee = round(original_cost * 0.05, 2)
-        refund_amount = round(original_cost, 2) # Refund everything (100%)
+        refund_amount = round(original_cost - cancellation_fee, 2)
 
         order.status = OrderStatus.CANCELLED
         # Charge the 5% penalty: update order total_cost to cancellation_fee
