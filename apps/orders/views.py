@@ -52,6 +52,18 @@ class OrderListCreateView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         data = serializer.validated_data
+        
+        # Payment verification if method is CARD
+        payment_method = data.get('payment_method', 'CARD')
+        if payment_method == 'CARD':
+            card_number = data.get('card_number', '')
+            card_cvv = data.get('card_cvv', '')
+            
+            # Simulate transaction failure cases (e.g. CVV is 777, ends in 9999, or is 4000000000000000)
+            clean_number = card_number.replace(' ', '').replace('-', '')
+            if card_cvv == '777' or clean_number.endswith('9999') or clean_number == '4000000000000000':
+                raise serializers.ValidationError({"error": "Transacción rechazada: Fondos insuficientes o tarjeta inválida."})
+
         pricing = PricingEngine.calculate_price(
             distance_km=data.get('distance_km', 5.0),
             duration_minutes=data.get('estimated_duration_min', 15.0),
@@ -65,11 +77,13 @@ class OrderListCreateView(generics.ListCreateAPIView):
             surcharges=pricing['surcharges'],
             platform_commission=pricing['platform_fee'],
             driver_earnings=pricing['driver_earnings'],
-            total_cost=pricing['total_cost']
+            total_cost=pricing['total_cost'],
+            is_paid=(payment_method == 'CARD') # Mark as paid if card transaction passes
         )
 
         # Trigger sequential smart driver matching (no global broadcast)
         try:
+            from apps.logistics.matching_engine import SmartMatchingEngine
             SmartMatchingEngine.dispatch_order_offer(order)
         except Exception as e:
             print('[Order Creation Matching Engine Warning]', e)
@@ -91,11 +105,36 @@ class OrderCancelView(APIView):
         except Order.DoesNotExist:
             return Response({'error': 'Pedido no encontrado'}, status=status.HTTP_404_NOT_FOUND)
 
-        if order.status in [OrderStatus.CREATED, OrderStatus.SEARCHING]:
-            order.status = OrderStatus.CANCELLED
-            order.save()
-            return Response({'message': 'Pedido cancelado con éxito'})
-        return Response({'error': 'No se puede cancelar un pedido que ya fue aceptado'}, status=status.HTTP_400_BAD_REQUEST)
+        if order.status in [OrderStatus.DELIVERED, OrderStatus.FINISHED, OrderStatus.CANCELLED]:
+            return Response({'error': 'Este pedido ya no puede ser cancelado'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Calculate 5% cancellation penalty & 100% original value refund
+        original_cost = float(order.total_cost)
+        cancellation_fee = round(original_cost * 0.05, 2)
+        refund_amount = round(original_cost, 2) # Refund everything (100%)
+
+        order.status = OrderStatus.CANCELLED
+        # Charge the 5% penalty: update order total_cost to cancellation_fee
+        order.total_cost = cancellation_fee
+        order.is_paid = True
+        order.save()
+
+        # Update driver status back to AVAILABLE if the order was already accepted
+        if order.driver:
+            try:
+                from apps.users.models import DriverProfile
+                profile = order.driver.driver_profile
+                profile.status = 'AVAILABLE'
+                profile.save()
+            except Exception as e:
+                print('[OrderCancelView driver status update error]', e)
+
+        return Response({
+            'message': 'Pedido cancelado con éxito',
+            'cancellation_fee': cancellation_fee,
+            'refund_amount': refund_amount,
+            'status': order.status
+        })
 
 
 class CompleteDeliveryPODView(APIView):

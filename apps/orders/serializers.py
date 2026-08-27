@@ -32,6 +32,11 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):
+    card_number = serializers.CharField(write_only=True, required=False)
+    card_expiry = serializers.CharField(write_only=True, required=False)
+    card_cvv = serializers.CharField(write_only=True, required=False)
+    card_name = serializers.CharField(write_only=True, required=False)
+
     class Meta:
         model = Order
         fields = (
@@ -43,7 +48,8 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             'is_fragile', 'needs_cold_chain', 'is_dangerous', 'requires_signature',
             'package_photo_1', 'package_photo_2', 'vehicle_type',
             'order_type', 'scheduled_time', 'payment_method',
-            'distance_km', 'estimated_duration_min'
+            'distance_km', 'estimated_duration_min',
+            'card_number', 'card_expiry', 'card_cvv', 'card_name'
         )
 
 
