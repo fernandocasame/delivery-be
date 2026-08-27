@@ -32,10 +32,10 @@ class OrderSerializer(serializers.ModelSerializer):
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):
-    card_number = serializers.CharField(write_only=True, required=False)
-    card_expiry = serializers.CharField(write_only=True, required=False)
-    card_cvv = serializers.CharField(write_only=True, required=False)
-    card_name = serializers.CharField(write_only=True, required=False)
+    card_number = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    card_expiry = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    card_cvv = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    card_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Order
@@ -51,6 +51,14 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             'distance_km', 'estimated_duration_min',
             'card_number', 'card_expiry', 'card_cvv', 'card_name'
         )
+
+    def create(self, validated_data):
+        validated_data.pop('card_number', None)
+        validated_data.pop('card_expiry', None)
+        validated_data.pop('card_cvv', None)
+        validated_data.pop('card_name', None)
+        return super().create(validated_data)
+
 
 
 class PODUploadSerializer(serializers.ModelSerializer):

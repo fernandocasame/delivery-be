@@ -4,8 +4,9 @@ import logging
 from rest_framework import generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import DriverWallet, WalletTransaction, TransactionType
+from .models import DriverWallet, WalletTransaction, TransactionType, WebhookLog
 from .serializers import DriverWalletSerializer
+
 
 logger = logging.getLogger(__name__)
 
@@ -24,31 +25,49 @@ class PolarWebhookView(APIView):
 
     def post(self, request):
         secret = os.environ.get('POLAR_WEBHOOK_SECRET', '')
-        payload = request.body
+        payload_bytes = request.body
         headers = request.headers
 
         event = None
+        error_msg = None
         try:
             if secret:
                 from polar_sdk.webhooks import validate_event, WebhookVerificationError
                 event = validate_event(
-                    payload=payload,
+                    payload=payload_bytes,
                     headers=headers,
                     secret=secret
                 )
             else:
-                event = json.loads(payload.decode('utf-8'))
+                event = json.loads(payload_bytes.decode('utf-8'))
         except Exception as e:
+            error_msg = str(e)
             logger.warning(f"[Polar Webhook Validation Fallback] {e}")
             try:
-                event = json.loads(payload.decode('utf-8'))
-            except Exception:
+                event = json.loads(payload_bytes.decode('utf-8'))
+            except Exception as json_err:
+                WebhookLog.objects.create(
+                    event_type='unknown',
+                    provider='POLAR',
+                    payload={'raw': payload_bytes.decode('utf-8', errors='ignore')},
+                    status='FAILED',
+                    error_message=str(json_err)
+                )
                 return Response({'error': 'Payload inválido'}, status=status.HTTP_400_BAD_REQUEST)
 
-        event_type = event.get('type') if isinstance(event, dict) else getattr(event, 'type', '')
+        event_type = event.get('type') if isinstance(event, dict) else getattr(event, 'type', 'unknown')
         data = event.get('data', {}) if isinstance(event, dict) else getattr(event, 'data', {})
 
-        logger.info(f"[POLAR WEBHOOK RECEIVED] Event: {event_type} | Data: {data}")
+        # Save webhook log entry in DB
+        webhook_log = WebhookLog.objects.create(
+            event_type=event_type,
+            provider='POLAR',
+            payload=event if isinstance(event, dict) else data if isinstance(data, dict) else {},
+            status='PROCESSED',
+            error_message=error_msg
+        )
+
+        logger.info(f"[POLAR WEBHOOK LOGGED] ID: {webhook_log.id} | Event: {event_type}")
 
         # Process payment / checkout / subscription
         if event_type in ['order.created', 'checkout.created', 'checkout.updated', 'subscription.created', 'payment.created']:
@@ -78,9 +97,10 @@ class PolarWebhookView(APIView):
                             amount=amount,
                             description=f"Pago / Recarga Polar ({event_type})"
                         )
-                    logger.info(f"[POLAR PAYMENT PROCESSED] Successfully processed payment for {customer_email}")
+                    logger.info(f"[POLAR PAYMENT PROCESSED] Added ${amount} for {customer_email}")
                 except User.DoesNotExist:
                     logger.warning(f"[Polar Webhook] User with email {customer_email} not found.")
 
-        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+        return Response({'status': 'success', 'log_id': webhook_log.id}, status=status.HTTP_200_OK)
+
 

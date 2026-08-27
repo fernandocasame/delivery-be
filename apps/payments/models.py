@@ -30,3 +30,19 @@ class WalletTransaction(models.Model):
 
     def __str__(self):
         return f"{self.transaction_type} - ${self.amount} ({self.wallet.driver.email})"
+
+
+class WebhookLog(models.Model):
+    event_type = models.CharField(max_length=100)
+    provider = models.CharField(max_length=50, default='POLAR')
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=20, default='PROCESSED')
+    error_message = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.provider} - {self.event_type} ({self.status})"
+
