@@ -170,21 +170,67 @@ class CreatePolarCheckoutView(APIView):
             except Exception:
                 pass
 
+        # Polar base API url
+        base_url = "https://sandbox-api.polar.sh/v1" if env == "sandbox" else "https://api.polar.sh/v1"
+
+        # 1. Search for customer by email
+        customer_id = None
+        try:
+            search_res = requests.get(
+                f"{base_url}/customers/?email={customer_email}",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json"
+                }
+            )
+            if search_res.status_code == 200:
+                items = search_res.json().get("items", [])
+                if items:
+                    customer_id = items[0].get("id")
+        except Exception as search_err:
+            logger.warning(f"[Polar Customer Search Error]: {search_err}")
+
+        # 2. Create customer if not exists
+        if not customer_id:
+            try:
+                name_str = request.user.get_full_name() or request.user.username or "Cliente"
+                create_res = requests.post(
+                    f"{base_url}/customers/",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "email": customer_email,
+                        "name": name_str
+                    }
+                )
+                if create_res.status_code in [200, 201]:
+                    customer_id = create_res.json().get("id")
+            except Exception as create_err:
+                logger.warning(f"[Polar Customer Creation Error]: {create_err}")
+
+        # 3. Construct checkout payload
         payload = {
             "products": [product_id],
             "amount": amount_cents,
             "currency": currency,
-            "customer_email": customer_email,
             "metadata": {
                 "order_id": str(order_id) if order_id else ""
             },
             "success_url": success_url,
             "return_url": return_url
         }
+        
+        # Link customer by ID if found/created, otherwise fallback to customer_email parameter
+        if customer_id:
+            payload["customer_id"] = customer_id
+        else:
+            payload["customer_email"] = customer_email
 
         try:
             response = requests.post(
-                url,
+                f"{base_url}/checkouts/",
                 headers={
                     "Authorization": f"Bearer {token}",
                     "Content-Type": "application/json"
