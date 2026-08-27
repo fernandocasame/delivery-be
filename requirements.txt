@@ -13,4 +13,6 @@ requests>=2.31.0
 python-dotenv>=1.0.1
 pymysql>=1.1.0
 pusher>=3.3.2
+polar-sdk>=0.32.0
+
 
