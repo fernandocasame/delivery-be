@@ -36,6 +36,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     card_expiry = serializers.CharField(write_only=True, required=False, allow_blank=True)
     card_cvv = serializers.CharField(write_only=True, required=False, allow_blank=True)
     card_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    card_email = serializers.EmailField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = Order
@@ -49,7 +50,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             'package_photo_1', 'package_photo_2', 'vehicle_type',
             'order_type', 'scheduled_time', 'payment_method',
             'distance_km', 'estimated_duration_min',
-            'card_number', 'card_expiry', 'card_cvv', 'card_name'
+            'card_number', 'card_expiry', 'card_cvv', 'card_name', 'card_email'
         )
 
     def create(self, validated_data):
@@ -57,6 +58,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         validated_data.pop('card_expiry', None)
         validated_data.pop('card_cvv', None)
         validated_data.pop('card_name', None)
+        validated_data.pop('card_email', None)
         return super().create(validated_data)
 
 

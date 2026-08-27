@@ -72,16 +72,42 @@ class PolarWebhookView(APIView):
         # Process payment / checkout / subscription
         if event_type in ['order.created', 'checkout.created', 'checkout.updated', 'subscription.created', 'payment.created']:
             customer_email = None
+            metadata = {}
             if isinstance(data, dict):
                 customer_email = data.get('customer_email') or data.get('user', {}).get('email')
                 amount_cents = data.get('amount') or data.get('net_amount') or 0
+                metadata = data.get('metadata', {})
             else:
                 customer_email = getattr(data, 'customer_email', None)
                 amount_cents = getattr(data, 'amount', 0)
+                metadata = getattr(data, 'metadata', {})
 
             amount = float(amount_cents) / 100.0 if isinstance(amount_cents, int) and amount_cents > 100 else float(amount_cents or 0)
 
-            if customer_email:
+            # If order checkout payment:
+            order_id = metadata.get('order_id') if isinstance(metadata, dict) else None
+            if order_id:
+                from apps.orders.models import Order, OrderStatus
+                try:
+                    order = Order.objects.get(id=int(order_id))
+                    order.is_paid = True
+                    order.status = OrderStatus.SEARCHING
+                    order.save()
+
+                    PaymentLog.objects.create(
+                        user=order.client,
+                        order=order,
+                        amount=amount or float(order.total_cost),
+                        payment_method='POLAR',
+                        status='SUCCESS',
+                        description=f"Pago de Pedido #{order.id} completado vía Polar checkout ({event_type})"
+                    )
+                    logger.info(f"[POLAR WEBHOOK] Marked Order #{order_id} as PAID.")
+                except Exception as e:
+                    logger.warning(f"[Polar Webhook] Failed to process order {order_id} payment: {e}")
+
+            # Fallback / Wallet flow
+            elif customer_email:
                 from apps.users.models import User
                 try:
                     user = User.objects.get(email=customer_email)
@@ -98,7 +124,6 @@ class PolarWebhookView(APIView):
                             description=f"Pago / Recarga Polar ({event_type})"
                         )
 
-                        from .models import PaymentLog
                         PaymentLog.objects.create(
                             user=user,
                             amount=amount,
@@ -131,16 +156,38 @@ class CreatePolarCheckoutView(APIView):
             from polar_sdk import Polar
             client = Polar(access_token=token, server=env)
 
-            success_url = request.data.get('success_url') or 'https://delivery.api.softnow.info/api/docs/'
+            success_url = request.data.get('success_url') or "myapp://payment/success?checkout_id={CHECKOUT_ID}"
+            return_url = request.data.get('return_url') or "myapp://payment/cancel"
             order_id = request.data.get('order_id')
+            customer_email = request.data.get('customer_email') or request.user.email
+            amount = request.data.get('amount')
+            currency = request.data.get('currency', 'usd')
+
+            amount_cents = 360  # Default $3.60
+            if amount:
+                try:
+                    amount_cents = int(float(amount) * 100)
+                except ValueError:
+                    pass
+            elif order_id:
+                try:
+                    from apps.orders.models import Order
+                    order = Order.objects.get(id=order_id)
+                    amount_cents = int(float(order.total_cost) * 100)
+                except Exception:
+                    pass
 
             checkout_data = {
-                'products': [product_id],
-                'customer_email': request.user.email,
-                'success_url': success_url,
+                "products": [product_id],
+                "amount": amount_cents,
+                "currency": currency,
+                "customer_email": customer_email,
+                "metadata": {
+                    "order_id": str(order_id) if order_id else ""
+                },
+                "success_url": success_url,
+                "return_url": return_url
             }
-            if order_id:
-                checkout_data['metadata'] = {'order_id': str(order_id), 'user_id': str(request.user.id)}
 
             checkout = client.checkouts.create(request=checkout_data)
             checkout_url = getattr(checkout, 'url', None)
@@ -150,7 +197,7 @@ class CreatePolarCheckoutView(APIView):
             PaymentLog.objects.create(
                 user=request.user,
                 order_id=order_id,
-                amount=0.00,
+                amount=float(amount_cents) / 100.0,
                 payment_method='POLAR',
                 status='PENDING',
                 transaction_id=str(checkout_id),
