@@ -178,6 +178,8 @@ class OrderListCreateView(generics.ListCreateAPIView):
                         transaction_id=str(checkout_id),
                         description=f"Sesión de Pago Polar iniciada para Pedido #{order.id}"
                     )
+                else:
+                    print(f"[Polar Checkout Session Failed]: Status {checkout_res.status_code} - {checkout_res.text}")
             except Exception as checkout_err:
                 print('[Polar Checkout Session Error in perform_create]', checkout_err)
 
