@@ -4,8 +4,8 @@ import os
 logger = logging.getLogger(__name__)
 
 PUSHER_APP_ID = os.environ.get('PUSHER_APP_ID', '2187556')
-PUSHER_KEY = os.environ.get('PUSHER_KEY', 'e70c2ac36060ee610e6f')
-PUSHER_SECRET = os.environ.get('PUSHER_SECRET', 'a0efdf09a47c69724c8a')
+PUSHER_KEY = os.environ.get('PUSHER_KEY', 'd48b05cbf37f28c5ccf3')
+PUSHER_SECRET = os.environ.get('PUSHER_SECRET', '10a9a1903cdff3851ad9')
 PUSHER_CLUSTER = os.environ.get('PUSHER_CLUSTER', 'us2')
 
 pusher_client = None
