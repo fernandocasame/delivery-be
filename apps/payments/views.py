@@ -320,3 +320,177 @@ class VerifyPolarPaymentView(APIView):
             'status': order.status,
             'message': 'El pago aún no ha sido completado en Polar.'
         }, status=status.HTTP_200_OK)
+
+
+class PolarSuccessView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        from apps.orders.models import Order, OrderStatus
+        checkout_id = request.GET.get('checkout_id')
+        order = None
+
+        if checkout_id:
+            p_log = PaymentLog.objects.filter(transaction_id=str(checkout_id)).first()
+            if p_log and p_log.order:
+                order = p_log.order
+
+        if order:
+            order.is_paid = True
+            order.status = OrderStatus.SEARCHING
+            order.save()
+            try:
+                from apps.logistics.matching_engine import SmartMatchingEngine
+                SmartMatchingEngine.dispatch_order_offer(order)
+            except Exception as match_err:
+                logger.warning(f"[PolarSuccessView dispatch error]: {match_err}")
+            PaymentLog.objects.filter(order=order, payment_method='POLAR').update(status='SUCCESS')
+
+        order_info = f"#{order.id}" if order else ""
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>¡Pago Confirmado! - Ecobmas Delivery</title>
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background-color: #0F172A;
+                    color: #FFFFFF;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100vh;
+                    margin: 0;
+                    padding: 20px;
+                    text-align: center;
+                }}
+                .card {{
+                    background-color: #1E293B;
+                    border-radius: 20px;
+                    padding: 40px 30px;
+                    max-width: 400px;
+                    width: 100%;
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                    border: 1px solid #334155;
+                }}
+                .icon {{
+                    font-size: 64px;
+                    margin-bottom: 20px;
+                }}
+                h1 {{
+                    color: #10B981;
+                    font-size: 24px;
+                    margin-bottom: 10px;
+                }}
+                p {{
+                    color: #94A3B8;
+                    font-size: 15px;
+                    line-height: 1.5;
+                    margin-bottom: 25px;
+                }}
+                .btn {{
+                    display: inline-block;
+                    background-color: #10B981;
+                    color: #FFFFFF;
+                    padding: 14px 28px;
+                    border-radius: 12px;
+                    text-decoration: none;
+                    font-weight: bold;
+                    font-size: 16px;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">🎉</div>
+                <h1>¡Pago Confirmado con Éxito!</h1>
+                <p>Tu pedido {order_info} ha sido verificado en Polar.sh. Estamos buscando un motorizado cercano a tu ubicación.</p>
+                <a href="myapp://payment/success?checkout_id={checkout_id or ''}" class="btn">Volver a la App</a>
+            </div>
+            <script>
+                setTimeout(function() {{
+                    window.location.href = "myapp://payment/success?checkout_id={checkout_id or ''}";
+                }}, 1500);
+            </script>
+        </body>
+        </html>
+        """
+        return HttpResponse(html_content, content_type="text/html")
+
+
+class PolarCancelView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        html_content = """
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Pago Cancelado - Ecobmas Delivery</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background-color: #0F172A;
+                    color: #FFFFFF;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100vh;
+                    margin: 0;
+                    padding: 20px;
+                    text-align: center;
+                }
+                .card {
+                    background-color: #1E293B;
+                    border-radius: 20px;
+                    padding: 40px 30px;
+                    max-width: 400px;
+                    width: 100%;
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+                    border: 1px solid #334155;
+                }
+                .icon {
+                    font-size: 64px;
+                    margin-bottom: 20px;
+                }
+                h1 {
+                    color: #EF4444;
+                    font-size: 24px;
+                    margin-bottom: 10px;
+                }
+                p {
+                    color: #94A3B8;
+                    font-size: 15px;
+                    line-height: 1.5;
+                    margin-bottom: 25px;
+                }
+                .btn {
+                    display: inline-block;
+                    background-color: #334155;
+                    color: #FFFFFF;
+                    padding: 14px 28px;
+                    border-radius: 12px;
+                    text-decoration: none;
+                    font-weight: bold;
+                    font-size: 16px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="card">
+                <div class="icon">❌</div>
+                <h1>Pago Cancelado</h1>
+                <p>La sesión de pago en Polar fue cancelada. Puedes intentar nuevamente desde la aplicación.</p>
+                <a href="myapp://payment/cancel" class="btn">Volver a la App</a>
+            </div>
+        </body>
+        </html>
+        """
+        return HttpResponse(html_content, content_type="text/html")
