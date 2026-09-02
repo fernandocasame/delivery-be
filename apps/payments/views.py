@@ -160,118 +160,47 @@ class CreatePolarCheckoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        import requests
-        token = os.environ.get('POLAR_API_TOKEN', 'polar_oat_Ym8K4i0cM5SqoOA93oq605gPvrla7g1INECmr1Oj7yB')
-        product_id = os.environ.get('POLAR_PRODUCT_ID', '47138fa6-4b35-4e43-9701-d39a08e94bd8')
-        env = os.environ.get('POLAR_ENV', 'sandbox')
+        from .polar_utils import create_polar_checkout
 
-        url = "https://sandbox-api.polar.sh/v1/checkouts/" if env == "sandbox" else "https://api.polar.sh/v1/checkouts/"
-
-        success_url = request.data.get('success_url') or "myapp://payment/success?checkout_id={CHECKOUT_ID}"
-        return_url = request.data.get('return_url') or "myapp://payment/cancel"
         order_id = request.data.get('order_id')
         customer_email = request.data.get('customer_email') or request.user.email
+        customer_name = request.data.get('customer_name') or request.user.get_full_name() or request.user.username
         amount = request.data.get('amount')
         currency = request.data.get('currency', 'usd')
 
-        amount_cents = 360  # Default $3.60
-        if amount:
-            try:
-                amount_cents = round(float(amount) * 100)
-            except ValueError:
-                pass
-        elif order_id:
+        total_cost = amount
+        if not total_cost and order_id:
             try:
                 from apps.orders.models import Order
                 order = Order.objects.get(id=order_id)
-                amount_cents = round(float(order.total_cost) * 100)
+                total_cost = order.total_cost
             except Exception:
                 pass
 
-        # Polar base API url
-        base_url = "https://sandbox-api.polar.sh/v1" if env == "sandbox" else "https://api.polar.sh/v1"
-
-        # 1. Search for customer by email
-        customer_id = None
-        try:
-            search_res = requests.get(
-                f"{base_url}/customers/?email={customer_email}",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                }
-            )
-            if search_res.status_code == 200:
-                items = search_res.json().get("items", [])
-                if items:
-                    customer_id = items[0].get("id")
-        except Exception as search_err:
-            logger.warning(f"[Polar Customer Search Error]: {search_err}")
-
-        # 2. Create customer if not exists
-        if not customer_id:
-            try:
-                name_str = request.user.get_full_name() or request.user.username or "Cliente"
-                create_res = requests.post(
-                    f"{base_url}/customers/",
-                    headers={
-                        "Authorization": f"Bearer {token}",
-                        "Content-Type": "application/json"
-                    },
-                    json={
-                        "email": customer_email,
-                        "name": name_str
-                    }
-                )
-                if create_res.status_code in [200, 201]:
-                    customer_id = create_res.json().get("id")
-            except Exception as create_err:
-                logger.warning(f"[Polar Customer Creation Error]: {create_err}")
-
-        # 3. Construct checkout payload
-        payload = {
-            "products": [product_id],
-            "amount": amount_cents,
-            "currency": currency,
-            "metadata": {
-                "order_id": str(order_id) if order_id else ""
-            },
-            "success_url": success_url,
-            "return_url": return_url
-        }
-
-        if customer_id:
-            payload["customer_id"] = customer_id
-        else:
-            payload["customer_email"] = customer_email
+        if not total_cost:
+            total_cost = 3.50
 
         try:
-            response = requests.post(
-                f"{base_url}/checkouts/",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json"
-                },
-                json=payload
+            checkout = create_polar_checkout(
+                order_id=order_id or "",
+                user=request.user,
+                total_cost=total_cost,
+                card_email=customer_email,
+                card_name=customer_name,
+                success_url=request.data.get('success_url'),
+                return_url=request.data.get('return_url'),
+                currency=currency
             )
-
-            if response.status_code not in [200, 201]:
-                return Response(
-                    {'error': f"Error de Polar.sh ({response.status_code}): {response.text}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            checkout = response.json()
 
             # Record PaymentLog in DB as PENDING
             PaymentLog.objects.create(
                 user=request.user,
                 order_id=order_id,
-                amount=float(amount_cents) / 100.0,
+                amount=float(checkout.get("total_amount") or checkout.get("amount") or 350) / 100.0,
                 payment_method='POLAR',
                 status='PENDING',
                 transaction_id=str(checkout.get("id")),
-                description=f"Sesión de Pago Polar iniciada (Product ID: {product_id[:8]}...)",
+                description=f"Sesión de Pago Polar iniciada",
                 raw_response=checkout
             )
 
