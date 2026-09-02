@@ -48,48 +48,39 @@ class OrderListCreateView(generics.ListCreateAPIView):
             except Exception as e:
                 print('[DRIVER get_queryset error]', e)
                 return Order.objects.filter(driver=user).order_by('-created_at')
-        return Order.objects.filter(client=user).order_by('-created_at')
+        return Order.objects.filter(client=user, is_paid=True).order_by('-created_at')
 
     def perform_create(self, serializer):
         data = serializer.validated_data
-        
-        # Payment verification if method is CARD
         payment_method = data.get('payment_method', 'CARD')
-        if payment_method == 'CARD':
-            card_number = data.get('card_number', '')
-            card_cvv = data.get('card_cvv', '')
-            
-            # Simulate transaction failure cases (e.g. CVV is 777, ends in 9999, or is 4000000000000000)
-            clean_number = card_number.replace(' ', '').replace('-', '')
-            if card_cvv == '777' or clean_number.endswith('9999') or clean_number == '4000000000000000':
-                try:
-                    from apps.payments.models import PaymentLog
-                    PaymentLog.objects.create(
-                        user=self.request.user,
-                        amount=data.get('total_cost', 0.00),
-                        payment_method='CARD',
-                        status='REJECTED',
-                        description='Transacción rechazada: Fondos insuficientes o tarjeta inválida.'
-                    )
-                except Exception as log_err:
-                    print('[PaymentLog Error]', log_err)
-                raise serializers.ValidationError({"error": "Transacción rechazada: Fondos insuficientes o tarjeta inválida."})
 
-        pricing = PricingEngine.calculate_price(
-            distance_km=data.get('distance_km', 5.0),
-            duration_minutes=data.get('estimated_duration_min', 15.0),
-            vehicle_type=data.get('vehicle_type', 'MOTO')
-        )
+        # Calculate dynamic cost
+        declared_val = data.get('declared_value')
+        dist_km = data.get('distance_km') or 5.0
+        est_min = data.get('estimated_duration_min') or 15.0
+
+        if declared_val and float(declared_val) > 0:
+            final_cost = Decimal(str(round(float(declared_val), 2)))
+        else:
+            pricing = PricingEngine.calculate_price(
+                distance_km=dist_km,
+                duration_minutes=est_min,
+                vehicle_type=data.get('vehicle_type', 'MOTO')
+            )
+            final_cost = Decimal(str(pricing['total_cost']))
+
+        commission_fee = round(final_cost * Decimal('0.15'), 2)
+        driver_earnings = round(final_cost - commission_fee, 2)
 
         # Create Order record with is_paid = False, status = CREATED
         order = serializer.save(
             client=self.request.user,
             status=OrderStatus.CREATED,
-            base_cost=pricing['base_price'],
-            surcharges=pricing['surcharges'],
-            platform_commission=pricing['platform_fee'],
-            driver_earnings=pricing['driver_earnings'],
-            total_cost=pricing['total_cost'],
+            base_cost=Decimal('2.00'),
+            surcharges=Decimal('0.00'),
+            platform_commission=commission_fee,
+            driver_earnings=driver_earnings,
+            total_cost=final_cost,
             is_paid=False
         )
 
