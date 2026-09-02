@@ -292,10 +292,6 @@ class VerifyPolarPaymentView(APIView):
             except Exception as ord_err:
                 logger.warning(f"[VerifyPolarPayment Orders List Error]: {ord_err}")
 
-        # Sandbox auto-confirm fallback for developer testing
-        if not is_confirmed and env == "sandbox":
-            is_confirmed = True
-
         if is_confirmed:
             order.is_paid = True
             order.status = OrderStatus.SEARCHING
