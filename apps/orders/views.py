@@ -50,6 +50,18 @@ class OrderListCreateView(generics.ListCreateAPIView):
                 return Order.objects.filter(driver=user).order_by('-created_at')
         return Order.objects.filter(client=user, is_paid=True).order_by('-created_at')
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order = self.perform_create(serializer)
+
+        response_data = serializer.data
+        if hasattr(order, 'checkout_url') and order.checkout_url:
+            response_data['checkout_url'] = order.checkout_url
+
+        headers = self.get_success_headers(response_data)
+        return Response(response_data, status=status.HTTP_201_CREATED, headers=headers)
+
     def perform_create(self, serializer):
         data = serializer.validated_data
         payment_method = data.get('payment_method', 'CARD')
@@ -125,6 +137,8 @@ class OrderListCreateView(generics.ListCreateAPIView):
                 SmartMatchingEngine.dispatch_order_offer(order)
             except Exception as e:
                 print('[Order Creation Matching Engine Warning]', e)
+
+        return order
 
 
 
