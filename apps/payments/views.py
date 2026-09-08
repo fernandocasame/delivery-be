@@ -109,6 +109,12 @@ class PolarWebhookView(APIView):
                 order.save()
 
                 try:
+                    from apps.notifications.pusher_service import PusherRealtimeService
+                    PusherRealtimeService.trigger_order_paid(order)
+                except Exception as p_err:
+                    logger.warning(f"[Polar Webhook Pusher trigger failed]: {p_err}")
+
+                try:
                     from apps.logistics.matching_engine import SmartMatchingEngine
                     SmartMatchingEngine.dispatch_order_offer(order)
                 except Exception as match_err:
@@ -262,7 +268,7 @@ class VerifyPolarPaymentView(APIView):
 
         is_confirmed = False
 
-        # 1. Query Polar Checkout by checkout_id if available
+        # Query Polar Checkout strictly by checkout_id
         if checkout_id:
             try:
                 chk_res = requests.get(f"{base_url}/checkouts/{checkout_id}", headers=headers)
@@ -274,28 +280,16 @@ class VerifyPolarPaymentView(APIView):
             except Exception as chk_err:
                 logger.warning(f"[VerifyPolarPayment Checkout Check Error]: {chk_err}")
 
-        # 2. Query Polar Orders list filtered by customer or product to see if order is paid
-        if not is_confirmed:
-            try:
-                ord_res = requests.get(f"{base_url}/orders/", headers=headers)
-                if ord_res.status_code == 200:
-                    items = ord_res.json().get('items', [])
-                    for p_order in items:
-                        p_meta = p_order.get('metadata', {}) or {}
-                        p_chk_id = p_order.get('checkout_id')
-                        p_status = p_order.get('status')
-                        p_paid = p_order.get('paid')
-
-                        if (str(p_meta.get('order_id')) == str(order.id) or p_chk_id == str(checkout_id)) and (p_status == 'paid' or p_paid is True):
-                            is_confirmed = True
-                            break
-            except Exception as ord_err:
-                logger.warning(f"[VerifyPolarPayment Orders List Error]: {ord_err}")
-
         if is_confirmed:
             order.is_paid = True
             order.status = OrderStatus.SEARCHING
             order.save()
+
+            try:
+                from apps.notifications.pusher_service import PusherRealtimeService
+                PusherRealtimeService.trigger_order_paid(order)
+            except Exception as p_err:
+                logger.warning(f"[VerifyPolarPayment Pusher trigger error]: {p_err}")
 
             try:
                 from apps.logistics.matching_engine import SmartMatchingEngine

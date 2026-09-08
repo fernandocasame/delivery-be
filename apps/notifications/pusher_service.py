@@ -54,6 +54,23 @@ class PusherRealtimeService:
         thread.start()
 
     @classmethod
+    def trigger_order_paid(cls, order):
+        """Notifies the client and order listeners that payment for this order was verified."""
+        data = {
+            'order_id': order.id,
+            'formatted_id': f"H{order.id}",
+            'status': order.status,
+            'is_paid': True,
+            'title': '💳 ¡Pago Confirmado!',
+            'message': f"Tu pago para el pedido #{order.id} fue verificado. Buscando repartidores...",
+        }
+        channels = [f"order-{order.id}"]
+        if order.client_id:
+            channels.append(f"client-{order.client_id}")
+
+        cls.trigger_event(channels, 'order-paid', data)
+
+    @classmethod
     def trigger_new_order_available(cls, order):
         """Notifies all drivers on the radar channel about a newly created order."""
         data = {
