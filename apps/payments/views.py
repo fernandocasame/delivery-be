@@ -68,22 +68,43 @@ class PolarWebhookView(APIView):
         )
 
         logger.info(f"[POLAR WEBHOOK LOGGED] ID: {webhook_log.id} | Event: {event_type}")
+
         # Process payment / checkout / subscription
         if event_type in ['order.created', 'order.paid', 'checkout.created', 'checkout.updated', 'subscription.created', 'payment.created']:
             customer_email = None
             metadata = {}
             checkout_id = None
+            status_str = None
 
             if isinstance(data, dict):
                 customer_email = data.get('customer_email') or data.get('user', {}).get('email')
                 amount_cents = data.get('amount') or data.get('net_amount') or 0
                 metadata = data.get('metadata', {}) or {}
                 checkout_id = data.get('checkout_id') or data.get('id')
+                status_str = str(data.get('status', '')).lower()
             else:
                 customer_email = getattr(data, 'customer_email', None)
                 amount_cents = getattr(data, 'amount', 0)
                 metadata = getattr(data, 'metadata', {}) or {}
                 checkout_id = getattr(data, 'checkout_id', getattr(data, 'id', None))
+                status_str = str(getattr(data, 'status', '')).lower()
+
+            # Check if this event strictly represents a CONFIRMED / SUCCESSFUL payment
+            # checkout.created is when the payment page is created (status is 'open'). NOT paid!
+            # checkout.updated can be 'open', 'confirmed', 'succeeded'.
+            # order.created, order.paid, payment.created are confirmed payments.
+            is_payment_success = False
+            if event_type in ['order.created', 'order.paid', 'payment.created', 'subscription.created']:
+                if status_str not in ['open', 'failed', 'cancelled', 'unpaid']:
+                    is_payment_success = True
+            elif event_type in ['checkout.updated', 'checkout.created']:
+                if status_str in ['succeeded', 'confirmed', 'paid']:
+                    is_payment_success = True
+
+            logger.info(f"[POLAR WEBHOOK EVAL] Event: {event_type} | Status: '{status_str}' | IsPaymentSuccess: {is_payment_success}")
+
+            if not is_payment_success:
+                return Response({'status': 'ignored', 'message': f'Evento {event_type} con estado "{status_str}" no confirma pago'}, status=status.HTTP_200_OK)
 
             amount = float(amount_cents) / 100.0 if isinstance(amount_cents, int) and amount_cents > 100 else float(amount_cents or 0)
 
@@ -103,7 +124,7 @@ class PolarWebhookView(APIView):
                 if p_log and p_log.order:
                     order = p_log.order
 
-            if order:
+            if order and not order.is_paid:
                 order.is_paid = True
                 order.status = OrderStatus.SEARCHING
                 order.save()
@@ -268,17 +289,35 @@ class VerifyPolarPaymentView(APIView):
 
         is_confirmed = False
 
-        # Query Polar Checkout strictly by checkout_id
+        # 1. Query Polar Checkout by checkout_id if available
         if checkout_id:
             try:
                 chk_res = requests.get(f"{base_url}/checkouts/{checkout_id}", headers=headers)
                 if chk_res.status_code == 200:
                     chk_data = chk_res.json()
-                    chk_status = chk_data.get('status')
+                    chk_status = str(chk_data.get('status', '')).lower()
                     if chk_status in ['succeeded', 'confirmed', 'paid']:
                         is_confirmed = True
             except Exception as chk_err:
                 logger.warning(f"[VerifyPolarPayment Checkout Check Error]: {chk_err}")
+
+        # 2. Query Polar Orders list filtered by customer or product to see if order is paid
+        if not is_confirmed:
+            try:
+                ord_res = requests.get(f"{base_url}/orders/", headers=headers)
+                if ord_res.status_code == 200:
+                    items = ord_res.json().get('items', [])
+                    for p_order in items:
+                        p_meta = p_order.get('metadata', {}) or {}
+                        p_chk_id = p_order.get('checkout_id')
+                        p_status = str(p_order.get('status', '')).lower()
+                        p_paid = p_order.get('paid')
+
+                        if (str(p_meta.get('order_id')) == str(order.id) or p_chk_id == str(checkout_id)) and (p_status == 'paid' or p_paid is True):
+                            is_confirmed = True
+                            break
+            except Exception as ord_err:
+                logger.warning(f"[VerifyPolarPayment Orders List Error]: {ord_err}")
 
         if is_confirmed:
             order.is_paid = True
@@ -289,7 +328,7 @@ class VerifyPolarPaymentView(APIView):
                 from apps.notifications.pusher_service import PusherRealtimeService
                 PusherRealtimeService.trigger_order_paid(order)
             except Exception as p_err:
-                logger.warning(f"[VerifyPolarPayment Pusher trigger error]: {p_err}")
+                logger.warning(f"[VerifyPolarPayment Pusher trigger failed]: {p_err}")
 
             try:
                 from apps.logistics.matching_engine import SmartMatchingEngine
@@ -316,6 +355,7 @@ class PolarSuccessView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
+        import requests
         from django.http import HttpResponse
         from apps.orders.models import Order, OrderStatus
         checkout_id = request.GET.get('checkout_id')
@@ -326,10 +366,33 @@ class PolarSuccessView(APIView):
             if p_log and p_log.order:
                 order = p_log.order
 
-        if order:
+        is_confirmed = False
+        if checkout_id:
+            token = os.environ.get('POLAR_API_TOKEN', 'polar_oat_Ym8K4i0cM5SqoOA93oq605gPvrla7g1INECmr1Oj7yB')
+            env = os.environ.get('POLAR_ENV', 'sandbox')
+            base_url = "https://sandbox-api.polar.sh/v1" if env == "sandbox" else "https://api.polar.sh/v1"
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+            try:
+                chk_res = requests.get(f"{base_url}/checkouts/{checkout_id}", headers=headers)
+                if chk_res.status_code == 200:
+                    chk_data = chk_res.json()
+                    chk_status = str(chk_data.get('status', '')).lower()
+                    logger.info(f"[PolarSuccessView Checkout Status Check] ID {checkout_id} | Status: {chk_status}")
+                    if chk_status in ['succeeded', 'confirmed', 'paid']:
+                        is_confirmed = True
+            except Exception as chk_err:
+                logger.warning(f"[PolarSuccessView Check Error]: {chk_err}")
+
+        if order and is_confirmed and not order.is_paid:
             order.is_paid = True
             order.status = OrderStatus.SEARCHING
             order.save()
+            try:
+                from apps.notifications.pusher_service import PusherRealtimeService
+                PusherRealtimeService.trigger_order_paid(order)
+            except Exception as p_err:
+                logger.warning(f"[PolarSuccessView Pusher error]: {p_err}")
             try:
                 from apps.logistics.matching_engine import SmartMatchingEngine
                 SmartMatchingEngine.dispatch_order_offer(order)
