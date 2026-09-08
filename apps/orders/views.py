@@ -45,11 +45,11 @@ class OrderListCreateView(generics.ListCreateAPIView):
                 return Order.objects.filter(
                     Q(driver=user) | 
                     Q(id__in=active_offer_order_ids, status=OrderStatus.SEARCHING)
-                ).order_by('-created_at')
+                ).exclude(status__in=[OrderStatus.CANCELLED, OrderStatus.FAILED]).order_by('-created_at')
             except Exception as e:
                 print('[DRIVER get_queryset error]', e)
-                return Order.objects.filter(driver=user).order_by('-created_at')
-        return Order.objects.filter(client=user, is_paid=True).order_by('-created_at')
+                return Order.objects.filter(driver=user).exclude(status__in=[OrderStatus.CANCELLED, OrderStatus.FAILED]).order_by('-created_at')
+        return Order.objects.filter(client=user, is_paid=True).exclude(status__in=[OrderStatus.CANCELLED, OrderStatus.FAILED]).order_by('-created_at')
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -168,9 +168,7 @@ class OrderCancelView(APIView):
         refund_amount = round(original_cost - cancellation_fee, 2)
 
         order.status = OrderStatus.CANCELLED
-        # Charge the 5% penalty: update order total_cost to cancellation_fee
         order.total_cost = cancellation_fee
-        order.is_paid = True
         order.save()
 
         # Update driver status back to AVAILABLE if the order was already accepted
