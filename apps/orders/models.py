@@ -25,7 +25,8 @@ class OrderStatus(models.TextChoices):
 
 class OrderType(models.TextChoices):
     IMMEDIATE = 'IMMEDIATE', 'Entrega inmediata'
-    SCHEDULED = 'SCHEDULED', 'Entrega programada'
+    EXPRESS = 'EXPRESS', 'Entrega express'
+    SCHEDULED = 'SCHEDULED', 'Entrega agendada'
 
 
 class PaymentMethod(models.TextChoices):
@@ -43,6 +44,8 @@ class Order(models.Model):
     status = models.CharField(max_length=30, choices=OrderStatus.choices, default=OrderStatus.CREATED)
     order_type = models.CharField(max_length=20, choices=OrderType.choices, default=OrderType.IMMEDIATE)
     scheduled_time = models.DateTimeField(null=True, blank=True)
+    scheduled_pickup_time = models.DateTimeField(null=True, blank=True)
+    scheduled_delivery_time = models.DateTimeField(null=True, blank=True)
 
     # Origin & Destination
     origin_address = models.CharField(max_length=255)

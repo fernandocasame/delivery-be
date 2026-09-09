@@ -4,7 +4,7 @@ from apps.config_params.models import SystemParameter
 
 class PricingEngine:
     @staticmethod
-    def calculate_price(distance_km: float, duration_minutes: float, vehicle_type: str, is_night: bool = False, is_rain: bool = False, is_holiday: bool = False) -> dict:
+    def calculate_price(distance_km: float, duration_minutes: float, vehicle_type: str, is_night: bool = False, is_rain: bool = False, is_holiday: bool = False, is_express: bool = False) -> dict:
         try:
             tariff = VehicleTariff.objects.get(vehicle_type=vehicle_type)
             base_price = tariff.base_price
@@ -25,6 +25,11 @@ class PricingEngine:
 
         # Calculate surcharges
         surcharges = Decimal('0.00')
+        express_surcharge = Decimal('0.00')
+
+        if is_express:
+            express_surcharge = Decimal(SystemParameter.get_param('express_surcharge_amount', '1.50'))
+            surcharges += express_surcharge
 
         if is_night:
             night_pct = Decimal(SystemParameter.get_param('night_surcharge_percentage', '15.0'))
@@ -55,6 +60,7 @@ class PricingEngine:
             'distance_cost': float(round(dist_cost, 2)),
             'duration_minutes': round(duration_minutes, 2),
             'duration_cost': float(round(time_cost, 2)),
+            'express_surcharge': float(round(express_surcharge, 2)),
             'surcharges': float(round(surcharges, 2)),
             'subtotal': float(round(subtotal, 2)),
             'total_cost': float(round(total, 2)),

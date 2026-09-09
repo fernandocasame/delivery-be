@@ -49,7 +49,7 @@ class OrderCreateSerializer(serializers.ModelSerializer):
             'weight_kg', 'dimensions_cm', 'packages_count', 'declared_value',
             'is_fragile', 'needs_cold_chain', 'is_dangerous', 'requires_signature',
             'package_photo_1', 'package_photo_2', 'vehicle_type',
-            'order_type', 'scheduled_time', 'payment_method',
+            'order_type', 'scheduled_time', 'scheduled_pickup_time', 'scheduled_delivery_time', 'payment_method',
             'distance_km', 'estimated_duration_min',
             'card_number', 'card_expiry', 'card_cvv', 'card_name', 'card_email',
             'checkout_url'

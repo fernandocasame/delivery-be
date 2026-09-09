@@ -6,7 +6,11 @@ from .serializers import SystemParameterSerializer
 class SystemParameterListCreateView(generics.ListCreateAPIView):
     queryset = SystemParameter.objects.all()
     serializer_class = SystemParameterSerializer
-    permission_classes = [permissions.IsAdminUser]
+    
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAdminUser()]
 
 
 class SystemParameterDetailView(generics.RetrieveUpdateDestroyAPIView):

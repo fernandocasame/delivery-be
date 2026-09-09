@@ -29,7 +29,8 @@ class EstimatePriceView(APIView):
                 duration_minutes=data.get('duration_minutes', 15.0),
                 vehicle_type=data.get('vehicle_type', 'MOTO'),
                 is_night=data.get('is_night', False),
-                is_rain=data.get('is_rain', False)
+                is_rain=data.get('is_rain', False),
+                is_express=data.get('is_express', False)
             )
             return Response(estimate)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

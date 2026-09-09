@@ -23,3 +23,4 @@ class PriceEstimateRequestSerializer(serializers.Serializer):
     vehicle_type = serializers.CharField(default='MOTO')
     is_rain = serializers.BooleanField(default=False)
     is_night = serializers.BooleanField(default=False)
+    is_express = serializers.BooleanField(default=False)

@@ -66,11 +66,16 @@ class OrderListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         data = serializer.validated_data
         payment_method = data.get('payment_method', 'CARD')
+        order_type = data.get('order_type', 'IMMEDIATE')
+        is_express = (order_type == 'EXPRESS')
 
         # Calculate dynamic cost
         declared_val = data.get('declared_value')
         dist_km = data.get('distance_km') or 5.0
         est_min = data.get('estimated_duration_min') or 15.0
+
+        base_cost_val = Decimal('2.00')
+        surcharges_val = Decimal('0.00')
 
         if declared_val and float(declared_val) > 0:
             final_cost = Decimal(str(round(float(declared_val), 2)))
@@ -78,9 +83,12 @@ class OrderListCreateView(generics.ListCreateAPIView):
             pricing = PricingEngine.calculate_price(
                 distance_km=dist_km,
                 duration_minutes=est_min,
-                vehicle_type=data.get('vehicle_type', 'MOTO')
+                vehicle_type=data.get('vehicle_type', 'MOTO'),
+                is_express=is_express
             )
             final_cost = Decimal(str(pricing['total_cost']))
+            base_cost_val = Decimal(str(pricing['base_price']))
+            surcharges_val = Decimal(str(pricing['surcharges']))
 
         commission_fee = round(final_cost * Decimal('0.15'), 2)
         driver_earnings = round(final_cost - commission_fee, 2)
@@ -89,8 +97,8 @@ class OrderListCreateView(generics.ListCreateAPIView):
         order = serializer.save(
             client=self.request.user,
             status=OrderStatus.CREATED,
-            base_cost=Decimal('2.00'),
-            surcharges=Decimal('0.00'),
+            base_cost=base_cost_val,
+            surcharges=surcharges_val,
             platform_commission=commission_fee,
             driver_earnings=driver_earnings,
             total_cost=final_cost,
